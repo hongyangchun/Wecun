@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { DownloadRequest, ExportRequest, ProgressEvent } from "../types/contracts";
 
@@ -33,6 +34,10 @@ export async function loadSavedCookie(): Promise<string> {
 
 export async function clearSavedCookie(): Promise<void> {
   await invoke("clear_saved_cookie_cmd");
+}
+
+export async function closeWindow(): Promise<void> {
+  await getCurrentWindow().close();
 }
 
 export function onProgress(callback: (event: ProgressEvent) => void) {

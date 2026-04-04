@@ -61,11 +61,11 @@ export default function StepOptions({
 }: StepOptionsProps) {
   return (
     <div className="step-enter">
-      <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-text)", marginBottom: 20, letterSpacing: "-0.01em" }}>
+      <h2 className="step-heading" style={{ marginBottom: 20 }}>
         下载选项
       </h2>
 
-      <div className="step-section">
+      <div style={{ marginBottom: 20 }}>
         <FormField label="微博类型">
           <SegmentedControl
             options={[
@@ -77,6 +77,16 @@ export default function StepOptions({
             ariaLabel="微博类型"
           />
         </FormField>
+        <label className="check-row" style={{ marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={includeImages}
+            onChange={(e) => onIncludeImagesChange(e.target.checked)}
+          />
+          <div>
+            <span className="check-label">包含图片</span>
+          </div>
+        </label>
       </div>
 
       <div className="step-section">
@@ -110,20 +120,6 @@ export default function StepOptions({
             </div>
           )}
         </FormField>
-      </div>
-
-      <div style={{ padding: "4px 0", marginBottom: 16 }}>
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={includeImages}
-            onChange={(e) => onIncludeImagesChange(e.target.checked)}
-          />
-          <div>
-            <span className="check-label">包含图片</span>
-            <p className="check-hint">下载微博中包含的所有图片到本地</p>
-          </div>
-        </label>
       </div>
 
       <div className="step-section">

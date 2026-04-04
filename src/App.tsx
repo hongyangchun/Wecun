@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState, useEffect } from "react";
 import StepIndicator from "./components/StepIndicator";
 import StepLogin from "./components/StepLogin";
 import StepTarget from "./components/StepTarget";
@@ -25,6 +25,7 @@ function formatLabel(fmt: ExportFormat): string {
 function AppShell() {
   const { state, dispatch } = useWizard();
   const isProcessing = state.processStatus !== "idle";
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const canGoNext = useCallback(() => {
     if (state.step === 0) return state.isLoggedIn;
@@ -97,6 +98,21 @@ function AppShell() {
     if (state.outputDir) await openOutputDir(state.outputDir);
   }, [state.outputDir]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleNext();
+      }
+      if (e.key === "Escape" && state.step > 0 && !isProcessing) {
+        e.preventDefault();
+        handleBack();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNext, handleBack, state.step, isProcessing]);
+
   const showFooter = !isProcessing;
 
   return (
@@ -110,17 +126,39 @@ function AppShell() {
                 <span className="auth-dot" />
                 已登录
               </span>
-              <button
-                className="logout-btn"
-                onClick={() => {
-                  if (window.confirm("确定要退出登录吗？")) {
-                    void clearSavedCookie().then(() => dispatch({ type: "LOGOUT" }));
-                  }
-                }}
-                type="button"
-              >
-                退出
-              </button>
+              {confirmLogout ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>确认退出？</span>
+                  <button
+                    className="logout-btn"
+                    style={{ color: "var(--color-danger)" }}
+                    onClick={() => {
+                      void clearSavedCookie().then(() => {
+                        dispatch({ type: "LOGOUT" });
+                        setConfirmLogout(false);
+                      });
+                    }}
+                    type="button"
+                  >
+                    退出
+                  </button>
+                  <button
+                    className="logout-btn"
+                    onClick={() => setConfirmLogout(false)}
+                    type="button"
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="logout-btn"
+                  onClick={() => setConfirmLogout(true)}
+                  type="button"
+                >
+                  退出
+                </button>
+              )}
             </div>
           )}
         </header>
@@ -168,33 +206,45 @@ function AppShell() {
         </div>
 
         {showFooter && (
-          <div className="step-footer">
-            <div>
-              {state.step > 0 && (
-                <button className="btn btn-secondary" onClick={handleBack} type="button">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                    <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  上一步
-                </button>
-              )}
+          <>
+            <div className="step-footer">
+              <div>
+                {state.step > 0 && (
+                  <button className="btn btn-secondary" onClick={handleBack} type="button">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                      <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    上一步
+                  </button>
+                )}
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleNext}
+                disabled={!canGoNext()}
+                type="button"
+              >
+                {state.step === 3 ? "开始下载" : (
+                  <>
+                    下一步
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M6 3L10.5 8L6 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </>
+                )}
+                {canGoNext() && (
+                  <kbd style={{ fontSize: 10, opacity: 0.5, fontFamily: "var(--font-sans)", marginLeft: 4 }}>⏎</kbd>
+                )}
+              </button>
             </div>
-            <button
-              className="btn btn-primary"
-              onClick={handleNext}
-              disabled={!canGoNext()}
-              type="button"
-            >
-              {state.step === 3 ? "开始下载" : (
-                <>
-                  下一步
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M6 3L10.5 8L6 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </>
-              )}
-            </button>
-          </div>
+            {!canGoNext() && (
+              <div className="step-hint">
+                {state.step === 0 && "请先登录微博账号"}
+                {state.step === 1 && "请输入有效的微博主页地址"}
+                {state.step === 3 && "请选择保存目录"}
+              </div>
+            )}
+          </>
         )}
 
         {isProcessing && (

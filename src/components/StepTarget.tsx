@@ -17,7 +17,7 @@ export default function StepTarget({ profileUrl, onProfileUrlChange, onNext }: S
 
   return (
     <div className="step-enter">
-      <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-text)", marginBottom: 6, letterSpacing: "-0.01em" }}>
+      <h2 className="step-heading">
         博主主页地址
       </h2>
       <p className="form-hint" style={{ marginBottom: 20 }}>

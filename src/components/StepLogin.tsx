@@ -62,8 +62,6 @@ export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) 
       {restoreError && (
         <p style={{ marginTop: 16, fontSize: 12, color: "var(--color-danger)" }}>{restoreError}</p>
       )}
-
-      <p className="form-hint" style={{ marginTop: 16 }}>登录成功后将自动进入下一步</p>
     </div>
   );
 }

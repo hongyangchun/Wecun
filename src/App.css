@@ -76,7 +76,6 @@ body {
   background: var(--color-bg-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
 input[type="text"],
@@ -100,26 +99,21 @@ input:focus:not(:focus-visible) {
 /* ── App Shell ── */
 
 .app-shell {
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
   background: var(--color-bg-base);
 }
 
 .app-window {
   width: 100%;
-  max-width: 520px;
-  min-height: 600px;
-  max-height: 90dvh;
+  height: 100%;
+  max-width: none;
+  min-height: auto;
+  max-height: none;
   background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow:
-    0 0 0 1px oklch(0 0 0 / 0.03),
-    0 2px 4px oklch(0 0 0 / 0.04),
-    0 8px 24px oklch(0 0 0 / 0.08);
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -265,6 +259,21 @@ input:focus:not(:focus-visible) {
 .step-content::-webkit-scrollbar-track { background: transparent; }
 .step-content::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
 
+.step-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+
+.step-hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  text-align: right;
+  padding: 0 24px 12px;
+}
+
 /* ── Footer ── */
 
 .step-footer {
@@ -360,6 +369,90 @@ input:focus:not(:focus-visible) {
 .input--valid { border-color: var(--color-success); }
 .input--error { border-color: var(--color-danger); }
 
+/* ── Date Input ── */
+
+input[type="date"] {
+  color-scheme: light;
+}
+
+input[type="date"]:focus {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type="date"] {
+    color-scheme: dark;
+  }
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  filter: invert(0.4) sepia(1) saturate(2) hue-rotate(140deg);
+  cursor: pointer;
+  transition: opacity 120ms ease, filter 120ms ease;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+}
+
+input[type="date"]:hover::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
+  filter: invert(0.35) sepia(1) saturate(2.5) hue-rotate(140deg);
+}
+
+input[type="date"]:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.85;
+  filter: invert(0.3) sepia(1) saturate(3) hue-rotate(140deg);
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+    filter: invert(0.6) sepia(1) saturate(2) hue-rotate(140deg);
+  }
+
+  input[type="date"]:hover::-webkit-calendar-picker-indicator {
+    opacity: 0.8;
+    filter: invert(0.55) sepia(1) saturate(2.5) hue-rotate(140deg);
+  }
+
+  input[type="date"]:focus::-webkit-calendar-picker-indicator {
+    opacity: 0.95;
+    filter: invert(0.5) sepia(1) saturate(3) hue-rotate(140deg);
+  }
+}
+
+input[type="date"]::-webkit-datetime-edit {
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+
+input[type="date"]::-webkit-datetime-edit-text {
+  color: var(--color-text-tertiary);
+  padding: 0 2px;
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  color: var(--color-text);
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field:focus,
+input[type="date"]::-webkit-datetime-edit-day-field:focus,
+input[type="date"]::-webkit-datetime-edit-year-field:focus {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
 .form-field {
   margin-bottom: 20px;
 }
@@ -373,7 +466,7 @@ input:focus:not(:focus-visible) {
 }
 
 .form-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
   margin-top: 6px;
   line-height: 1.5;
@@ -409,10 +502,9 @@ input:focus:not(:focus-visible) {
 }
 
 .seg-active {
-  background: var(--color-bg-elevated);
-  color: var(--color-text);
+  background: var(--color-accent);
+  color: white;
   font-weight: 600;
-  box-shadow: 0 1px 3px oklch(0 0 0 / 0.06), 0 0 0 1px oklch(0 0 0 / 0.04);
 }
 
 /* ── Log Panel ── */
@@ -432,7 +524,7 @@ input:focus:not(:focus-visible) {
 .log-panel::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
 
 .log-entry {
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-mono);
   color: var(--color-text-tertiary);
   padding: 3px 0;
@@ -469,11 +561,8 @@ input:focus:not(:focus-visible) {
 /* ── Step Sections (visual grouping) ── */
 
 .step-section {
-  padding: 16px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-subtle);
-  background: oklch(from var(--color-bg-inset) l c h / 0.5);
-  margin-bottom: 16px;
+  padding: 0;
+  margin-bottom: 20px;
 }
 
 .step-section-title {
@@ -521,7 +610,7 @@ input:focus:not(:focus-visible) {
 }
 
 .radio-card-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
   margin-top: 2px;
   line-height: 1.5;
@@ -553,7 +642,7 @@ input:focus:not(:focus-visible) {
 }
 
 .check-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
   margin-top: 2px;
 }
@@ -665,7 +754,7 @@ input:focus:not(:focus-visible) {
 }
 
 .dir-display-path {
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
   word-break: break-all;
@@ -743,7 +832,7 @@ input:focus:not(:focus-visible) {
   border-radius: 100px;
   background: var(--color-accent-subtle);
   color: var(--color-accent);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   margin-bottom: 12px;
 }

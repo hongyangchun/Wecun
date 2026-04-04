@@ -14,8 +14,8 @@
     "windows": [
       {
         "title": "微博备份助手",
-        "width": 900,
-        "height": 700,
+        "width": 580,
+        "height": 760,
         "resizable": true,
         "center": true
       }

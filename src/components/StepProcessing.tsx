@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LogPanel, ProgressRing } from "./ui";
 import { DONATION_CONFIG } from "../lib/app-config";
 import type { ProcessStatus } from "../state/wizard-reducer";
@@ -36,10 +36,6 @@ export default function StepProcessing({
   onOpenOutputDir,
 }: StepProcessingProps) {
   const [showDonation, setShowDonation] = useState(false);
-
-  useEffect(() => {
-    if (processStatus === "done") setShowDonation(true);
-  }, [processStatus]);
 
   const renderLog = () =>
     logs.length > 0 ? <LogPanel logs={logs} /> : null;
@@ -123,14 +119,28 @@ export default function StepProcessing({
               微博已下载并导出完成
             </p>
 
+            {total > 0 && (
+              <div style={{
+                padding: "12px 16px",
+                borderRadius: "var(--radius-md)",
+                background: "var(--color-bg-inset)",
+                marginBottom: 16,
+                border: "1px solid var(--color-border-subtle)"
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
+                  共处理 {total} 条微博
+                </div>
+              </div>
+            )}
+
             {renderLog()}
 
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={onOpenOutputDir} type="button">
                 打开目录
               </button>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onReset} type="button">
-                重新开始
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDonation(true)} type="button">
+                关闭
               </button>
             </div>
           </div>
@@ -198,25 +208,26 @@ export default function StepProcessing({
                 {DONATION_CONFIG.subtitle}
               </p>
 
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                {DONATION_CONFIG.qrImagePath ? (
+              {DONATION_CONFIG.qrImagePath && (
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
                   <img src={DONATION_CONFIG.qrImagePath} alt="打赏二维码" className="donation-qr" />
-                ) : (
-                  <div className="donation-qr" style={{ display: "flex", alignItems: "center", justifyContent: "center", borderStyle: "dashed", borderWidth: 2 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-accent)" }}>请替换二维码图片</span>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
 
-              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>
-                个人微信：{DONATION_CONFIG.wechatId}
-              </p>
+              {DONATION_CONFIG.wechatId && (
+                <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>
+                  个人微信：{DONATION_CONFIG.wechatId}
+                </p>
+              )}
 
               <button
                 className="btn btn-primary"
                 style={{ width: "100%", marginTop: 12 }}
                 type="button"
-                onClick={() => setShowDonation(false)}
+                onClick={() => {
+                  setShowDonation(false);
+                  onReset();
+                }}
               >
                 我知道了
               </button>
