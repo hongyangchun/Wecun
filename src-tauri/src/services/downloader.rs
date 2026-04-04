@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::{collections::HashMap, path::Path};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::models::{
-    DownloadRequest, ExportFormat, PostFilter, ProgressEvent, ProgressPhase, WeiboPost,
+    DownloadRequest, ExportFormat, PostFilter, ProgressEvent, ProgressPhase, RawPost, WeiboPost,
 };
 use crate::services::{
     export_markdown::MarkdownExportService,
@@ -16,20 +16,43 @@ use crate::services::{
     weibo_api::WeiboApiClient,
 };
 use crate::state::AppState;
+use crate::utils::html::count_plain_text_chars;
 
 #[derive(Debug, Default)]
 pub struct DownloadService;
+
+fn needs_long_text(raw: &RawPost) -> bool {
+    raw.is_long_text == Some(true) || raw.text.contains("展开") || raw.text.contains("全文")
+}
+
+pub fn normalize_raw_post_for_export(
+    mut raw: RawPost,
+    top_level_long_text: Option<String>,
+    retweeted_long_text: Option<String>,
+) -> RawPost {
+    if let Some(text) = top_level_long_text.filter(|text| !text.is_empty()) {
+        raw.text = text;
+    }
+
+    if let Some(retweeted) = raw.retweeted_status.as_mut() {
+        if let Some(text) = retweeted_long_text.filter(|text| !text.is_empty()) {
+            retweeted.text = text;
+        }
+    }
+
+    raw
+}
 
 impl DownloadService {
     pub fn new() -> Self {
         Self
     }
 
-    pub async fn run(
+    pub async fn run<R: Runtime>(
         &self,
         request: &DownloadRequest,
         state: &AppState,
-        app: &AppHandle,
+        app: &AppHandle<R>,
     ) -> Result<(), AppError> {
         state.reset();
 
@@ -50,11 +73,11 @@ impl DownloadService {
         result
     }
 
-    async fn run_inner(
+    async fn run_inner<R: Runtime>(
         &self,
         request: &DownloadRequest,
         state: &AppState,
-        app: &AppHandle,
+        app: &AppHandle<R>,
     ) -> Result<(), AppError> {
         self.emit(app, ProgressPhase::FetchingUserInfo, 0, 1, "正在获取用户信息...");
 
@@ -133,29 +156,51 @@ impl DownloadService {
         for (index, raw) in all_raw_posts.iter().enumerate() {
             self.ensure_not_cancelled(state, app)?;
 
-            let text = if raw.is_long_text == Some(true) {
+            let top_level_long_text = if needs_long_text(raw) {
                 match client.get_long_text(&raw.mblogid).await {
-                    Ok(content) => content,
-                    Err(_) => raw.text.clone(),
+                    Ok(content) => Some(content),
+                    Err(e) => {
+                        eprintln!("[longtext] 顶层长文获取失败 mblogid={}: {}", raw.mblogid, e);
+                        None
+                    }
                 }
             } else {
-                raw.text.clone()
+                None
             };
 
-            let mut post = client.normalize_post(raw, &request.uid);
-            post.text = text;
+            let retweeted_long_text = match raw.retweeted_status.as_deref() {
+                Some(retweeted) if needs_long_text(retweeted) => match client.get_long_text(&retweeted.mblogid).await {
+                    Ok(content) => Some(content),
+                    Err(e) => {
+                        eprintln!("[longtext] 转发长文获取失败 mblogid={}: {}", retweeted.mblogid, e);
+                        None
+                    }
+                },
+                _ => None,
+            };
+
+            let normalized_raw = normalize_raw_post_for_export(
+                raw.clone(),
+                top_level_long_text,
+                retweeted_long_text,
+            );
+
+            let post = WeiboApiClient::<R>::normalize_post(&normalized_raw, &request.uid);
 
             match request.filter {
                 PostFilter::Original if post.is_repost => continue,
                 PostFilter::Original | PostFilter::All => {}
             }
 
-            if post.text.chars().count() < request.min_text_length {
+            if count_plain_text_chars(&post.text) < request.min_text_length {
                 continue;
             }
 
             normalized_posts.push(post);
 
+            state.posts_exported.store(normalized_posts.len(), Ordering::Relaxed);
+
+            self.emit(app, ProgressPhase::Exporting, 0, 1, "正在导出文件...");
             self.emit(
                 app,
                 ProgressPhase::FetchingLongText,
@@ -179,9 +224,14 @@ impl DownloadService {
                     .export(&normalized_posts, &request.output_dir)
                     .await?;
             }
-            ExportFormat::MarkdownSingle | ExportFormat::MarkdownPerPost => {
+            ExportFormat::MarkdownSingle => {
                 MarkdownExportService::new()
-                    .export(&normalized_posts, &request.output_dir)
+                    .export(&normalized_posts, &request.output_dir, true)
+                    .await?;
+            }
+            ExportFormat::MarkdownPerPost => {
+                MarkdownExportService::new()
+                    .export(&normalized_posts, &request.output_dir, false)
                     .await?;
             }
         }
@@ -190,12 +240,12 @@ impl DownloadService {
         Ok(())
     }
 
-    async fn download_images(
+    async fn download_images<R: Runtime>(
         &self,
         request: &DownloadRequest,
         posts: &mut [WeiboPost],
         state: &AppState,
-        app: &AppHandle,
+        app: &AppHandle<R>,
     ) -> Result<(), AppError> {
         self.emit(app, ProgressPhase::DownloadingImages, 0, 0, "正在下载图片...");
 
@@ -261,7 +311,7 @@ impl DownloadService {
         Ok(())
     }
 
-    fn ensure_not_cancelled(&self, state: &AppState, app: &AppHandle) -> Result<(), AppError> {
+    fn ensure_not_cancelled<R: Runtime>(&self, state: &AppState, app: &AppHandle<R>) -> Result<(), AppError> {
         if state.is_cancelled() {
             self.emit(app, ProgressPhase::Cancelled, 0, 0, "已取消");
             return Err(AppError::Cancelled);
@@ -270,9 +320,9 @@ impl DownloadService {
         Ok(())
     }
 
-    fn emit(
+    fn emit<R: Runtime>(
         &self,
-        app: &AppHandle,
+        app: &AppHandle<R>,
         phase: ProgressPhase,
         current: usize,
         total: usize,

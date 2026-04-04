@@ -1,7 +1,9 @@
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
 
 use crate::error::AppError;
 use crate::models::{
@@ -12,152 +14,16 @@ use crate::state::AppState;
 
 const LOGIN_WINDOW_LABEL: &str = "weibo-login";
 const WEIBO_BASE: &str = "https://weibo.com";
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1000);
-const API_RESULT_EVENT: &str = "weibo-api-result";
-const API_TIMEOUT: Duration = Duration::from_secs(30);
-const API_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-pub struct WeiboApiClient {
-    app: AppHandle,
+pub struct WeiboApiClient<R: Runtime> {
+    app: AppHandle<R>,
     last_fetch: Mutex<Option<Instant>>,
 }
 
-pub async fn weibo_api_call<K, V>(
-    app: &AppHandle,
-    path: &str,
-    query: &[(K, V)],
-) -> Result<String, AppError>
-where
-    K: AsRef<str>,
-    V: AsRef<str>,
-{
-    let state = app.state::<AppState>();
-    if !state.is_api_window_ready() {
-        return Err(AppError::ApiError(
-            "请先登录微博以建立 API 会话".to_string(),
-        ));
-    }
-
-    let window = app
-        .get_webview_window(LOGIN_WINDOW_LABEL)
-        .ok_or_else(|| AppError::ApiError("微博登录窗口不存在，请重新登录".to_string()))?;
-
-    let mut url = format!("{WEIBO_BASE}{path}");
-    if !query.is_empty() {
-        let params = query
-            .iter()
-            .map(|(key, value)| {
-                format!(
-                    "{}={}",
-                    urlencoding::encode(key.as_ref()),
-                    urlencoding::encode(value.as_ref())
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("&");
-        url.push('?');
-        url.push_str(&params);
-    }
-
-    let request_id = state.next_api_request_id();
-    state.clear_api_result(&request_id);
-
-    let escaped_url = serde_json::to_string(&url)
-        .map_err(|e| AppError::ApiError(format!("无法序列化请求 URL: {e}")))?;
-    let escaped_request_id = serde_json::to_string(&request_id)
-        .map_err(|e| AppError::ApiError(format!("无法序列化请求 ID: {e}")))?;
-
-    let script = format!(
-        r#"(async () => {{
-  const requestId = {escaped_request_id};
-  const emitResult = (payload) => {{
-    if (window.__TAURI__?.event?.emit) {{
-      window.__TAURI__.event.emit('{API_RESULT_EVENT}', JSON.stringify(payload));
-      return;
-    }}
-
-    if (window.__TAURI_INTERNALS__?.postMessage) {{
-      window.__TAURI_INTERNALS__.postMessage({{
-        cmd: 'plugin:event|emit',
-        payload: {{
-          event: '{API_RESULT_EVENT}',
-          payload: JSON.stringify(payload)
-        }}
-      }});
-      return;
-    }}
-
-    throw new Error('Tauri event bridge unavailable in WebView');
-  }};
-
-  try {{
-    const response = await fetch({escaped_url}, {{
-      method: 'GET',
-      credentials: 'include',
-      headers: {{
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': 'https://weibo.com/',
-        'X-Requested-With': 'XMLHttpRequest'
-      }}
-    }});
-
-    const body = await response.text();
-    emitResult({{
-      requestId,
-      ok: response.ok,
-      status: response.status,
-      body,
-      error: response.ok ? null : `HTTP ${{response.status}}`
-    }});
-  }} catch (error) {{
-    emitResult({{
-      requestId,
-      ok: false,
-      status: null,
-      body: null,
-      error: error instanceof Error ? error.message : String(error)
-    }});
-  }}
-}})();"#
-    );
-
-    window
-        .eval(&script)
-        .map_err(|e| AppError::ApiError(format!("执行 WebView 请求失败: {e}")))?;
-
-    let deadline = Instant::now() + API_TIMEOUT;
-    loop {
-        if let Some(result) = state.take_api_result(&request_id) {
-            if result.ok {
-                if let Some(body) = result.body {
-                    return Ok(body);
-                }
-
-                return Err(AppError::ApiError("微博 API 返回空响应体".to_string()));
-            }
-
-            let status_prefix = result
-                .status
-                .map(|status| format!("HTTP {status}: "))
-                .unwrap_or_default();
-            let message = result
-                .error
-                .or(result.body)
-                .unwrap_or_else(|| "微博 API 调用失败".to_string());
-            return Err(AppError::ApiError(format!("{status_prefix}{message}")));
-        }
-
-        if Instant::now() >= deadline {
-            state.clear_api_result(&request_id);
-            return Err(AppError::ApiError("等待微博 API 响应超时".to_string()));
-        }
-
-        tokio::time::sleep(API_POLL_INTERVAL).await;
-    }
-}
-
-impl WeiboApiClient {
-    pub fn new(app: AppHandle) -> Self {
+impl<R: Runtime> WeiboApiClient<R> {
+    pub fn new(app: AppHandle<R>) -> Self {
         Self {
             app,
             last_fetch: Mutex::new(None),
@@ -182,9 +48,55 @@ impl WeiboApiClient {
     ) -> Result<T, AppError> {
         self.throttle();
 
-        let text = weibo_api_call(&self.app, path, query).await?;
+        let state = self.app.state::<AppState>();
+        let cookie = state.get_cookie();
+        if cookie.is_empty() {
+            return Err(AppError::ApiError("请先登录".to_string()));
+        }
+
+        let client = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| AppError::ApiError(format!("创建 HTTP 客户端失败: {e}")))?;
+
+        let mut url = format!("{WEIBO_BASE}{path}");
+        if !query.is_empty() {
+            let params: Vec<String> = query
+                .iter()
+                .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
+                .collect();
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let resp = client
+            .get(&url)
+            .header("Cookie", &cookie)
+            .header("Referer", "https://weibo.com/")
+            .send()
+            .await
+            .map_err(|e| AppError::ApiError(format!("网络请求失败: {e}")))?;
+
+        let status = resp.status();
+        let text = resp.text().await.map_err(AppError::Network)?;
+
+        if is_auth_invalid_response(status, &text) {
+            state.set_cookie(String::new());
+            clear_saved_cookie(&self.app);
+            let _ = self.app.emit("login-invalid", "登录已失效，请重新登录");
+            return Err(AppError::InvalidCookie);
+        }
+
+        if !status.is_success() {
+            return Err(AppError::ApiError(format!(
+                "HTTP {status} from {path}: {}",
+                &text[..text.len().min(300)]
+            )));
+        }
+
         serde_json::from_str(&text)
-            .map_err(|e| AppError::Parse(format!("Failed to parse {path}: {e}\nBody: {text}")))
+            .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", &text[..text.len().min(300)])))
     }
 
     pub async fn get_user_info(&self, uid: &str) -> Result<UserProfile, AppError> {
@@ -212,7 +124,6 @@ impl WeiboApiClient {
         let mut query = vec![
             ("uid", uid.to_string()),
             ("page", page.to_string()),
-            ("feature", "4".to_string()),
         ];
         if let Some(ts) = starttime {
             query.push(("starttime", ts.to_string()));
@@ -232,10 +143,20 @@ impl WeiboApiClient {
         let raw: RawLongText = self
             .get_json("/ajax/statuses/longtext", &[("id", mblogid.to_string())])
             .await?;
-        Ok(raw.data.long_text_content)
+
+        if !raw.data.long_text_content.is_empty() {
+            return Ok(raw.data.long_text_content);
+        }
+        if let Some(raw_text) = raw.data.raw_text {
+            if !raw_text.is_empty() {
+                return Ok(raw_text);
+            }
+        }
+
+        Err(AppError::ApiError(format!("长微博内容为空: {mblogid}")))
     }
 
-    pub fn normalize_post(&self, raw: &RawPost, uid: &str) -> WeiboPost {
+    pub fn normalize_post(raw: &RawPost, uid: &str) -> WeiboPost {
         let author = raw
             .user
             .as_ref()
@@ -252,19 +173,52 @@ impl WeiboApiClient {
         let region = raw.region_name.clone();
         let images = Self::parse_images(&raw.pic_infos);
         let source_url = format!("https://weibo.com/{}/{}", uid, raw.mblogid);
-        let text = raw.text.clone();
+        let tags = Self::extract_tags(raw);
 
         WeiboPost {
             mblogid: raw.mblogid.clone(),
             created_at: raw.created_at.clone(),
-            text,
+            text: raw.text.clone(),
             images,
             is_repost,
             repost_user,
             region,
             source_url,
             author,
+            tags,
         }
+    }
+
+    fn extract_tags(raw: &RawPost) -> Vec<String> {
+        let mut tags = Vec::new();
+
+        if let Some(tag_struct) = &raw.tag_struct {
+            for item in tag_struct {
+                if let Some(name) = item.get("tagName").and_then(|v| v.as_str()) {
+                    tags.push(name.to_string());
+                }
+            }
+        }
+
+        if let Some(topic_struct) = &raw.topic_struct {
+            if let Some(arr) = topic_struct.as_array() {
+                for item in arr {
+                    if let Some(name) = item
+                        .get("title")
+                        .or_else(|| item.get("topic_title"))
+                        .and_then(|v| v.as_str())
+                    {
+                        tags.push(name.to_string());
+                    }
+                }
+            }
+        }
+
+        tags.extend(extract_hashtags_from_text(&raw.text));
+
+        tags.sort();
+        tags.dedup();
+        tags
     }
 
     fn parse_images(pic_infos: &Option<serde_json::Value>) -> Vec<WeiboImage> {
@@ -337,4 +291,146 @@ impl WeiboApiClient {
 
         Ok(all_posts)
     }
+}
+
+fn extract_hashtags_from_text(text: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        if chars[i] == '#' {
+            let start = i + 1;
+            let mut end = start;
+            while end < len && chars[end] != '#' {
+                end += 1;
+            }
+            if end < len && end > start {
+                let tag: String = chars[start..end].iter().collect();
+                // Skip HTML tags that got captured (contains < or >)
+                if !tag.contains('<') && !tag.contains('>') {
+                    result.push(tag);
+                }
+                i = end + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    result
+}
+
+fn cookie_dir<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"))
+}
+
+fn cookie_file_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    cookie_dir(app).join("weibo_cookie.dat")
+}
+
+pub fn load_saved_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let path = cookie_file_path(app);
+    if path.exists() {
+        fs::read_to_string(&path).ok()
+    } else {
+        None
+    }
+}
+
+pub fn apply_saved_cookie_to_state(state: &AppState, cookie: Option<String>) -> Option<String> {
+    let restored = cookie.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+
+    match restored {
+        Some(ref value) => state.set_cookie(value.clone()),
+        None => state.set_cookie(String::new()),
+    }
+
+    restored
+}
+
+pub fn restore_saved_cookie<R: Runtime>(app: &AppHandle<R>, state: &AppState) -> Option<String> {
+    apply_saved_cookie_to_state(state, load_saved_cookie(app))
+}
+
+pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool {
+    let body_lower = body.to_ascii_lowercase();
+    status == reqwest::StatusCode::UNAUTHORIZED
+        || status == reqwest::StatusCode::FORBIDDEN
+        || body_lower.contains("retcode=6102")
+        || body_lower.contains("passport.weibo.com")
+        || body_lower.contains("<!doctype html")
+            && body_lower.contains("window.wbbotdetector")
+            && body_lower.contains("weibo.com/favicon.ico")
+}
+
+pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
+    let dir = cookie_dir(app);
+    let _ = fs::create_dir_all(&dir);
+    let _ = fs::write(cookie_file_path(app), cookie);
+}
+
+pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
+    let _ = fs::remove_file(cookie_file_path(app));
+}
+
+pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
+    let app_clone = app.clone();
+
+    let _ = WebviewWindowBuilder::new(
+        &app,
+        LOGIN_WINDOW_LABEL,
+        WebviewUrl::External("https://passport.weibo.com/sso/signin".parse().unwrap()),
+    )
+    .title("登录微博")
+    .inner_size(480.0, 560.0)
+    .resizable(false)
+    .center()
+    .on_navigation(move |url: &Url| {
+        let url_str = url.as_str();
+        if url_str.starts_with("https://weibo.com")
+            && !url_str.contains("passport")
+            && !url_str.contains("signin")
+        {
+            let app = app_clone.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+
+                if let Some(win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
+                    if let Ok(cookies) = win.cookies() {
+                        let cookie_string: Vec<String> = cookies
+                            .iter()
+                            .map(|c| format!("{}={}", c.name(), c.value()))
+                            .collect();
+
+                        if !cookie_string.is_empty() {
+                            let full_cookie = cookie_string.join("; ");
+                            let state = app.state::<AppState>();
+                            state.set_cookie(full_cookie.clone());
+                            save_cookie(&app, &full_cookie);
+                            let _ = app.emit("cookie-received", full_cookie);
+                        }
+                    }
+
+                    let _ = win.close();
+                    let _ = app.emit("login-success", "");
+                }
+            });
+        }
+        true
+    })
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
