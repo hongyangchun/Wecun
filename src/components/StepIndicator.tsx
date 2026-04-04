@@ -17,7 +17,7 @@ export default function StepIndicator({ steps, currentStep }: StepIndicatorProps
             <div className="step-node">
               <span className={`step-dot ${dotClass}`}>
                 {isDone ? (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <path d="M2 6.5L4.5 9L10 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 ) : (

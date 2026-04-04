@@ -14,6 +14,7 @@
   --color-success-subtle: oklch(0.95 0.03 155);
 
   --color-warning: oklch(0.65 0.16 75);
+  --color-warning-subtle: oklch(0.95 0.04 75);
 
   --color-bg-base: oklch(0.985 0.002 250);
   --color-bg-elevated: oklch(0.995 0 0);
@@ -52,6 +53,7 @@
     --color-success-subtle: oklch(0.22 0.04 155);
 
     --color-warning: oklch(0.72 0.16 75);
+    --color-warning-subtle: oklch(0.25 0.04 75);
 
     --color-bg-base: oklch(0.14 0.005 250);
     --color-bg-elevated: oklch(0.17 0.005 250);
@@ -243,7 +245,7 @@ input:focus:not(:focus-visible) {
   transition: background 300ms ease;
 }
 
-.step-connector--done { background: oklch(0.60 0.16 155 / 0.4); }
+.step-connector--done { background: oklch(from var(--color-success) l c h / 0.4); }
 .step-connector--pending { background: var(--color-border); }
 
 /* ── Content Area ── */
@@ -268,7 +270,7 @@ input:focus:not(:focus-visible) {
 }
 
 .step-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
   text-align: right;
   padding: 0 24px 12px;
@@ -364,6 +366,10 @@ input:focus:not(:focus-visible) {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--color-accent-subtle);
   background: var(--color-bg-elevated);
+}
+
+.input:hover:not(:focus) {
+  border-color: var(--color-text-disabled);
 }
 
 .input--valid { border-color: var(--color-success); }
@@ -692,7 +698,7 @@ input[type="date"]::-webkit-datetime-edit-year-field:focus {
 .processing-icon--accent { background: var(--color-accent-subtle); }
 .processing-icon--success { background: var(--color-success-subtle); }
 .processing-icon--danger { background: var(--color-danger-subtle); }
-.processing-icon--warning { background: oklch(0.95 0.04 75); }
+.processing-icon--warning { background: var(--color-warning-subtle, oklch(0.95 0.04 75)); }
 
 .processing-title {
   font-size: 16px;

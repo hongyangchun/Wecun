@@ -47,7 +47,7 @@ export default function StepProcessing({
           <div className="step-enter">
             <div className="processing-header">
               <span className="processing-icon processing-icon--accent animate-spin-slow">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <circle cx="8" cy="8" r="6" stroke="var(--color-accent)" strokeWidth="1.5" strokeDasharray="4 3" fill="none" />
                 </svg>
               </span>
@@ -84,7 +84,7 @@ export default function StepProcessing({
           <div className="step-enter">
             <div className="processing-header">
               <span className="processing-icon processing-icon--accent">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--color-accent)" strokeWidth="1.5" />
                   <path d="M5 6H11M5 8H11M5 10H9" stroke="var(--color-accent)" strokeWidth="1.2" strokeLinecap="round" />
                 </svg>
@@ -93,7 +93,7 @@ export default function StepProcessing({
             </div>
 
             <div className="center-illustration" style={{ padding: "24px 0" }}>
-              <svg width="72" height="72" viewBox="0 0 80 80" className="animate-spin-slow" style={{ animationDuration: "3s" }}>
+              <svg width="72" height="72" viewBox="0 0 80 80" className="animate-spin-slow" style={{ animationDuration: "3s" }} aria-hidden="true">
                 <circle cx="40" cy="40" r="32" fill="none" stroke="var(--color-border)" strokeWidth="5" />
                 <circle cx="40" cy="40" r="32" fill="none" stroke="var(--color-accent)" strokeWidth="5" strokeLinecap="round" strokeDasharray="60 140" />
               </svg>
@@ -108,7 +108,7 @@ export default function StepProcessing({
           <div className="step-enter">
             <div className="processing-header">
               <span className="processing-icon processing-icon--success">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <path className="animate-check-draw" d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
@@ -150,7 +150,7 @@ export default function StepProcessing({
           <div className="step-enter">
             <div className="processing-header">
               <span className="processing-icon processing-icon--danger">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <path d="M4 4L12 12M12 4L4 12" stroke="var(--color-danger)" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </span>
@@ -175,7 +175,7 @@ export default function StepProcessing({
           <div className="step-enter">
             <div className="processing-header">
               <span className="processing-icon processing-icon--warning">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                   <rect x="3" y="3" width="8" height="8" rx="1.5" stroke="var(--color-warning)" strokeWidth="1.5" />
                 </svg>
               </span>

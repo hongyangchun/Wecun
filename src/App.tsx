@@ -211,7 +211,7 @@ function AppShell() {
               <div>
                 {state.step > 0 && (
                   <button className="btn btn-secondary" onClick={handleBack} type="button">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
                       <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     上一步
@@ -227,7 +227,7 @@ function AppShell() {
                 {state.step === 3 ? "开始下载" : (
                   <>
                     下一步
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M6 3L10.5 8L6 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </>

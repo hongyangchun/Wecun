@@ -24,7 +24,7 @@ export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) 
     return (
       <div className="step-enter center-illustration">
         <div className="center-illustration-icon" style={{ background: "var(--color-success-subtle)" }}>
-          <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
+          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
@@ -38,9 +38,9 @@ export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) 
 
   return (
     <div className="step-enter center-illustration">
-      <div className="center-illustration-icon" style={{ background: "var(--color-accent-subtle)" }}>
-        <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="6" r="3" stroke="var(--color-accent)" strokeWidth="1.5" />
+        <div className="center-illustration-icon" style={{ background: "var(--color-accent-subtle)" }}>
+          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="6" r="3" stroke="var(--color-accent)" strokeWidth="1.5" />
           <path d="M3 14C3 11.24 5.24 9 8 9C10.76 9 13 11.24 13 14" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </div>

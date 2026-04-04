@@ -64,7 +64,7 @@ export default function StepExportSettings({
         </button>
         {outputDir && (
           <div className="dir-display">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }}>
               <path d="M2 4H5L6.5 6H12V11H2V4Z" stroke="var(--color-text-tertiary)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span className="dir-display-path">{outputDir}</span>

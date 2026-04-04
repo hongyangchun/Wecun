@@ -73,13 +73,10 @@ pub async fn export_posts(
 
     let _ = app.emit(
         "download-progress",
-        ProgressEvent::new(
-            ProgressPhase::Exporting,
-            1,
-            1,
-            &format!("正在导出 {}...", format_label(&request.export_format)),
-        ),
+        ProgressEvent::new(ProgressPhase::Exporting, 1, 1, &format!("正在导出 {}...", format_label(&request.export_format))),
     );
+
+    let posts_count = posts.len();
 
     match request.export_format {
         ExportFormat::MarkdownSingle => MarkdownExportService::new()
@@ -98,7 +95,7 @@ pub async fn export_posts(
 
     let _ = app.emit(
         "download-progress",
-        ProgressEvent::new(ProgressPhase::Complete, 1, 1, "导出完成！"),
+        ProgressEvent::new(ProgressPhase::Complete, posts_count, posts_count, "导出完成！"),
     );
 
     Ok(format!("导出完成！已生成 {}", format_label(&request.export_format)))
