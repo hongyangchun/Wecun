@@ -55,8 +55,7 @@ fn test_normalize_post() {
     let raw: RawSearchProfile = serde_json::from_str(&json).unwrap();
     let list = raw.data.list.unwrap();
 
-    let client = WeiboApiClient::new("test_cookie".to_string());
-    let post = client.normalize_post(&list[0], "1738498871");
+    let post = WeiboApiClient::<tauri::Wry>::normalize_post(&list[0], "1738498871");
 
     assert_eq!(post.mblogid, "Oabc123def");
     assert_eq!(post.author, "测试用户");
@@ -73,8 +72,7 @@ fn test_normalize_repost() {
     let raw: RawSearchProfile = serde_json::from_str(&json).unwrap();
     let list = raw.data.list.unwrap();
 
-    let client = WeiboApiClient::new("test_cookie".to_string());
-    let post = client.normalize_post(&list[1], "1738498871");
+    let post = WeiboApiClient::<tauri::Wry>::normalize_post(&list[1], "1738498871");
 
     assert!(post.is_repost);
     assert_eq!(post.repost_user, Some("原作者".to_string()));
@@ -93,8 +91,23 @@ fn test_image_url_https_prefix() {
     let raw: RawSearchProfile = serde_json::from_str(&json).unwrap();
     let list = raw.data.list.unwrap();
 
-    let client = WeiboApiClient::new("test_cookie".to_string());
-    let post = client.normalize_post(&list[0], "1738498871");
+    let post = WeiboApiClient::<tauri::Wry>::normalize_post(&list[0], "1738498871");
 
     assert!(post.images[0].original_url.starts_with("http"));
+}
+
+#[test]
+fn test_parse_camelcase_is_long_text_field() {
+    let raw: tauri_app_lib::models::RawPost = serde_json::from_str(
+        r#"{
+            "mblogid": "Qdemo123",
+            "created_at": "Thu Apr 02 09:30:36 +0800 2026",
+            "text": "<p>截断内容</p>",
+            "isLongText": true,
+            "user": { "id": 1, "screen_name": "测试用户" }
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(raw.is_long_text, Some(true));
 }

@@ -1,5 +1,6 @@
 use tauri_app_lib::models::{WeiboImage, WeiboPost};
 use tauri_app_lib::services::export_markdown::MarkdownExportService;
+use tauri_app_lib::services::sanitize_filename;
 
 fn sample_posts() -> Vec<WeiboPost> {
     vec![WeiboPost {
@@ -17,6 +18,7 @@ fn sample_posts() -> Vec<WeiboPost> {
         region: Some("发布于 北京".to_string()),
         source_url: "https://weibo.com/123/Otest123".to_string(),
         author: "测试用户".to_string(),
+        tags: vec![],
     }]
 }
 
@@ -29,7 +31,7 @@ async fn test_markdown_single() {
     let svc = MarkdownExportService::new();
     svc.export_single(&posts, &dir).await.unwrap();
 
-    let output = dir.join("微博导出.md");
+    let output = dir.join(format!("{}-微博导出.md", sanitize_filename("测试用户")));
     assert!(output.exists());
 
     let content = std::fs::read_to_string(&output).unwrap();
