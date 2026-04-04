@@ -1,0 +1,55 @@
+{
+  "data": {
+    "total": 2,
+    "list": [
+      {
+        "mblogid": "Oabc123def",
+        "created_at": "Mon Jan 15 12:00:00 +0800 2024",
+        "text": "<p>这是一条测试微博</p>",
+        "is_long_text": false,
+        "region_name": "发布于 北京",
+        "user": {
+          "id": 1738498871,
+          "screen_name": "测试用户"
+        },
+        "pic_infos": {
+          "pic1": {
+            "large": {
+              "url": "https://wx1.sinaimg.cn/large/006PQ2BRgy1hm5abc123.jpg",
+              "width": 1080,
+              "height": 1080
+            }
+          }
+        },
+        "retweeted_status": null,
+        "page_info": null
+      },
+      {
+        "mblogid": "Odef456ghi",
+        "created_at": "Tue Jan 16 08:30:00 +0800 2024",
+        "text": "<p>这是第二条测试微博，包含转发</p>",
+        "is_long_text": false,
+        "region_name": "发布于 上海",
+        "user": {
+          "id": 1738498871,
+          "screen_name": "测试用户"
+        },
+        "pic_infos": null,
+        "retweeted_status": {
+          "mblogid": "Oorig789",
+          "created_at": "Mon Jan 15 10:00:00 +0800 2024",
+          "text": "<p>原微博内容</p>",
+          "is_long_text": false,
+          "user": {
+            "id": 9999999999,
+            "screen_name": "原作者"
+          },
+          "pic_infos": null,
+          "retweeted_status": null,
+          "page_info": null
+        },
+        "page_info": null
+      }
+    ]
+  }
+}
