@@ -1,6 +1,6 @@
-use tauri_app_lib::models::{WeiboImage, WeiboPost};
+use tauri_app_lib::models::{ExportContext, WeiboImage, WeiboPost};
 use tauri_app_lib::services::export_markdown::MarkdownExportService;
-use tauri_app_lib::services::sanitize_filename;
+use tauri_app_lib::services::markdown_export_filename;
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -36,7 +36,7 @@ fn linked_post() -> WeiboPost {
 }
 
 fn single_export_path(dir: &std::path::Path) -> std::path::PathBuf {
-    dir.join(format!("{}-微博导出.md", sanitize_filename("测试用户")))
+    dir.join(markdown_export_filename("2024-01-01至2024-01-31", "测试用户"))
 }
 
 #[tokio::test]
@@ -45,25 +45,42 @@ async fn markdown_export_preserves_link_targets() {
     let svc = MarkdownExportService::new();
     let posts = vec![linked_post()];
 
-    svc.export_single(&posts, &dir).await.unwrap();
+    svc.export_single(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     let rendered = std::fs::read_to_string(single_export_path(&dir)).unwrap();
     assert!(rendered.contains("[查看原文](https://weibo.com/example)"));
 }
 
 #[tokio::test]
-async fn markdown_export_places_metadata_below_body() {
-    let dir = temp_dir("metadata");
+async fn markdown_export_time_link_appears_above_body() {
+    let dir = temp_dir("time-link");
     let svc = MarkdownExportService::new();
     let posts = vec![linked_post()];
 
-    svc.export_single(&posts, &dir).await.unwrap();
+    svc.export_single(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     let rendered = std::fs::read_to_string(single_export_path(&dir)).unwrap();
+    let time_index = rendered.find("Mon Jan 15").unwrap();
     let body_index = rendered.find("正文前半段").unwrap();
-    let metadata_index = rendered.find("- 发布时间:").unwrap();
 
-    assert!(body_index < metadata_index);
+    assert!(time_index < body_index);
+    assert!(rendered.contains("[原文链接](https://weibo.com/123/Olinked123)"));
 }
 
 #[tokio::test]
@@ -94,4 +111,44 @@ async fn per_post_export_uses_parent_relative_image_paths() {
 
     let rendered = std::fs::read_to_string(post_file).unwrap();
     assert!(rendered.contains("../images/img.jpg"));
+}
+
+#[tokio::test]
+async fn per_post_export_writes_obsidian_frontmatter() {
+    let dir = temp_dir("frontmatter");
+    let svc = MarkdownExportService::new();
+    let posts = vec![linked_post()];
+
+    svc.export_per_post(&posts, &dir).await.unwrap();
+
+    let post_file = std::fs::read_dir(dir.join("posts"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md") && path.file_name().and_then(|name| name.to_str()) != Some("index.md"))
+        .unwrap();
+
+    let rendered = std::fs::read_to_string(post_file).unwrap();
+    assert!(rendered.starts_with("---\n"));
+    assert!(rendered.contains("author: \"测试用户\""));
+    assert!(rendered.contains("source_url: \"https://weibo.com/123/Olinked123\""));
+}
+
+#[tokio::test]
+async fn per_post_export_uses_time_and_text_filename() {
+    let dir = temp_dir("filename");
+    let svc = MarkdownExportService::new();
+    let posts = vec![linked_post()];
+
+    svc.export_per_post(&posts, &dir).await.unwrap();
+
+    let post_file = std::fs::read_dir(dir.join("posts"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md") && path.file_name().and_then(|name| name.to_str()) != Some("index.md"))
+        .unwrap();
+
+    let file_name = post_file.file_name().and_then(|name| name.to_str()).unwrap();
+    assert!(file_name.starts_with("2024-01-15-正文前半段"));
 }

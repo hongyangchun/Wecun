@@ -3,12 +3,10 @@ import { openLoginWindow } from "../lib/tauri-bridge";
 
 interface StepLoginProps {
   isLoggedIn: boolean;
-  onNext: () => void;
-  onLogout: () => void;
   restoreError?: string;
 }
 
-export default function StepLogin({ isLoggedIn, onNext, onLogout, restoreError }: StepLoginProps) {
+export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) {
   const [isOpening, setIsOpening] = useState(false);
 
   const handleLogin = async () => {
@@ -24,49 +22,48 @@ export default function StepLogin({ isLoggedIn, onNext, onLogout, restoreError }
 
   if (isLoggedIn) {
     return (
-      <div className="step-content step-login">
-        <div className="step-icon">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle className="icon-success-soft" cx="24" cy="24" r="22" />
-            <path className="icon-success" d="M15 24L21 30L33 18" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+      <div className="step-enter center-illustration">
+        <div className="center-illustration-icon" style={{ background: "var(--color-success-subtle)" }}>
+          <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
+            <path d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <h2 className="step-title">已登录</h2>
-        <p className="step-desc">微博账号已就绪，可以继续操作</p>
-        <div className="wizard-actions">
-          <button className="btn-wizard btn-wizard-primary" onClick={onNext} type="button">
-            下一步
-          </button>
-          <button className="btn-wizard btn-wizard-outline" onClick={onLogout} type="button">
-            退出登录
-          </button>
-        </div>
+        <h2 className="processing-title">已登录</h2>
+        <p className="form-hint" style={{ textAlign: "center" }}>
+          微博账号已就绪，点击下方「下一步」继续
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="step-content step-login">
-      <div className="step-icon">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <circle className="icon-soft" cx="24" cy="24" r="22" />
-          <path className="icon-accent" d="M16 24C16 19.58 19.58 16 24 16C28.42 16 32 19.58 32 24" strokeWidth="2.5" strokeLinecap="round"/>
-          <circle className="icon-accent" cx="24" cy="28" r="4" />
-          <path className="icon-accent" d="M18 36C18 32.69 20.69 30 24 30C27.31 30 30 32.69 30 36" strokeWidth="2.5" strokeLinecap="round"/>
+    <div className="step-enter center-illustration">
+      <div className="center-illustration-icon" style={{ background: "var(--color-accent-subtle)" }}>
+        <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="6" r="3" stroke="var(--color-accent)" strokeWidth="1.5" />
+          <path d="M3 14C3 11.24 5.24 9 8 9C10.76 9 13 11.24 13 14" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </div>
-      <h2 className="step-title">登录微博账号</h2>
-      <p className="step-desc">登录后即可下载目标博主的全部微博</p>
+      <h2 className="processing-title">登录微博账号</h2>
+      <p className="form-hint" style={{ textAlign: "center", maxWidth: 260 }}>
+        登录后即可下载目标博主的全部微博
+      </p>
+
       <button
-        className="btn-wizard btn-wizard-primary"
+        className="btn btn-primary"
+        style={{ marginTop: 32, minWidth: 160 }}
         onClick={handleLogin}
         disabled={isOpening}
         type="button"
       >
         {isOpening ? "正在打开..." : "打开登录页面"}
       </button>
-      {restoreError && <p className="input-error step-login-error">{restoreError}</p>}
-      <p className="step-hint">登录成功后将自动进入下一步</p>
+
+      {restoreError && (
+        <p style={{ marginTop: 16, fontSize: 12, color: "var(--color-danger)" }}>{restoreError}</p>
+      )}
+
+      <p className="form-hint" style={{ marginTop: 16 }}>登录成功后将自动进入下一步</p>
     </div>
   );
 }

@@ -10,7 +10,8 @@ pub enum PostFilter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExportFormat {
-    Pdf,
+    #[serde(rename = "html")]
+    Html,
     #[serde(rename = "md-single")]
     MarkdownSingle,
     #[serde(rename = "md-multi")]
@@ -30,7 +31,12 @@ pub struct DownloadRequest {
     pub filter: PostFilter,
     pub include_images: bool,
     pub date_range: DateRange,
-    pub export_format: ExportFormat,
     pub output_dir: String,
     pub min_text_length: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportRequest {
+    pub output_dir: String,
+    pub export_format: ExportFormat,
 }

@@ -3,11 +3,14 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::TimeZone;
+use tauri_app_lib::models::{DateRange, DownloadRequest, PostFilter};
+use tauri_app_lib::services::downloader::DownloadService;
+use tauri_app_lib::services::export_markdown::MarkdownExportService;
+use tauri_app_lib::services::cache;
+use tauri_app_lib::services::markdown_export_filename;
+use tauri_app_lib::state::AppState;
 use tauri::Manager;
 use tauri::test::{mock_builder, mock_context, noop_assets};
-use tauri_app_lib::models::{DateRange, DownloadRequest, ExportFormat, PostFilter};
-use tauri_app_lib::services::downloader::DownloadService;
-use tauri_app_lib::state::AppState;
 
 fn create_app() -> tauri::App<tauri::test::MockRuntime> {
     mock_builder()
@@ -32,6 +35,7 @@ fn actual_saved_cookie() -> String {
 }
 
 #[tokio::test]
+#[ignore = "requires a live Weibo session and matching upstream content"]
 async fn live_session_exports_real_long_post_content() {
     let app = create_app();
     let handle = app.handle().clone();
@@ -52,7 +56,7 @@ async fn live_session_exports_real_long_post_content() {
         date_range: DateRange {
             start_timestamp: Some(chrono::FixedOffset::east_opt(8 * 3600)
                 .unwrap()
-                .with_ymd_and_hms(2026, 4, 1, 0, 0, 0)
+                .with_ymd_and_hms(2026, 4, 3, 0, 0, 0)
                 .single()
                 .unwrap()
                 .timestamp()),
@@ -63,7 +67,6 @@ async fn live_session_exports_real_long_post_content() {
                 .unwrap()
                 .timestamp()),
         },
-        export_format: ExportFormat::MarkdownSingle,
         output_dir: output_dir.to_string_lossy().to_string(),
         min_text_length: 0,
     };
@@ -73,7 +76,24 @@ async fn live_session_exports_real_long_post_content() {
         .await
         .expect("live export smoke test failed");
 
-    let export_file = output_dir.join("杨幂-微博导出.md");
+    let output_dir_str = output_dir.to_string_lossy().to_string();
+    let cached_bundle = cache::load_cache_bundle_sync(&output_dir_str)
+        .expect("expected cache file to exist");
+    let cached_posts = cached_bundle.posts;
+
+    MarkdownExportService::new()
+        .export(&cached_posts, &output_dir_str, &cached_bundle.export_context, true)
+        .await
+        .expect("markdown export failed");
+
+    let author = cached_posts
+        .first()
+        .map(|post| post.author.as_str())
+        .expect("expected cached posts to include at least one item");
+    let export_file = output_dir.join(markdown_export_filename(
+        &cached_bundle.export_context.date_range_label,
+        author,
+    ));
     let content = fs::read_to_string(&export_file).expect("expected markdown export file");
 
     assert!(

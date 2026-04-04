@@ -2,15 +2,14 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::{collections::HashMap, path::Path};
 
+use chrono::{TimeZone, Utc};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::models::{
-    DownloadRequest, ExportFormat, PostFilter, ProgressEvent, ProgressPhase, RawPost, WeiboPost,
+    DownloadRequest, ExportContext, PostFilter, ProgressEvent, ProgressPhase, RawPost, WeiboPost,
 };
 use crate::services::{
-    export_markdown::MarkdownExportService,
-    export_pdf::PdfExportService,
     file_naming::{dedupe_filenames, post_filename},
     image_store::ImageStoreService,
     weibo_api::WeiboApiClient,
@@ -200,7 +199,7 @@ impl DownloadService {
 
             state.posts_exported.store(normalized_posts.len(), Ordering::Relaxed);
 
-            self.emit(app, ProgressPhase::Exporting, 0, 1, "正在导出文件...");
+            self.emit(app, ProgressPhase::FetchingLongText, 0, 1, "正在处理长文内容...");
             self.emit(
                 app,
                 ProgressPhase::FetchingLongText,
@@ -215,28 +214,25 @@ impl DownloadService {
                 .await?;
         }
 
-        self.emit(app, ProgressPhase::Exporting, 0, 1, "正在导出文件...");
-        std::fs::create_dir_all(&request.output_dir)?;
+        crate::services::cache::save_cache_bundle(
+            &normalized_posts,
+            &request.output_dir,
+            ExportContext {
+                date_range_label: format_date_range_label(
+                    request.date_range.start_timestamp,
+                    request.date_range.end_timestamp,
+                ),
+            },
+        )
+        .await?;
 
-        match request.export_format {
-            ExportFormat::Pdf => {
-                PdfExportService::new()
-                    .export(&normalized_posts, &request.output_dir)
-                    .await?;
-            }
-            ExportFormat::MarkdownSingle => {
-                MarkdownExportService::new()
-                    .export(&normalized_posts, &request.output_dir, true)
-                    .await?;
-            }
-            ExportFormat::MarkdownPerPost => {
-                MarkdownExportService::new()
-                    .export(&normalized_posts, &request.output_dir, false)
-                    .await?;
-            }
-        }
-
-        self.emit(app, ProgressPhase::Complete, 1, 1, "下载完成！");
+        self.emit(
+            app,
+            ProgressPhase::Complete,
+            normalized_posts.len(),
+            normalized_posts.len(),
+            &format!("下载完成！共 {} 条微博", normalized_posts.len()),
+        );
         Ok(())
     }
 
@@ -344,4 +340,25 @@ fn image_extension(url: &str) -> String {
         .filter(|ext| !ext.is_empty())
         .map(|ext| ext.to_ascii_lowercase())
         .unwrap_or_else(|| "jpg".to_string())
+}
+
+fn format_date_range_label(start_timestamp: Option<i64>, end_timestamp: Option<i64>) -> String {
+    match (
+        start_timestamp.and_then(timestamp_to_local_date),
+        end_timestamp.and_then(timestamp_to_local_date),
+    ) {
+        (Some(start), Some(end)) => format!("{start}至{end}"),
+        _ => "全部时间".to_string(),
+    }
+}
+
+fn timestamp_to_local_date(timestamp: i64) -> Option<String> {
+    let offset = chrono::FixedOffset::east_opt(8 * 3600)?;
+    Some(
+        Utc.timestamp_opt(timestamp, 0)
+            .single()?
+            .with_timezone(&offset)
+            .format("%Y-%m-%d")
+            .to_string(),
+    )
 }

@@ -1,6 +1,6 @@
 export type PostFilter = "original" | "all";
 export type DateMode = "all" | "range";
-export type ExportFormat = "pdf" | "md-single" | "md-multi";
+export type ExportFormat = "md-single" | "md-multi" | "html";
 
 export interface DownloadRequest {
   uid: string;
@@ -11,9 +11,13 @@ export interface DownloadRequest {
     start_timestamp: number | null;
     end_timestamp: number | null;
   };
-  export_format: ExportFormat;
   output_dir: string;
   min_text_length: number;
+}
+
+export interface ExportRequest {
+  output_dir: string;
+  export_format: ExportFormat;
 }
 
 export type ProgressPhase =

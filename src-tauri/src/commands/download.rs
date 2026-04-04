@@ -1,10 +1,12 @@
 use std::sync::atomic::Ordering;
 
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::error::AppError;
-use crate::models::DownloadRequest;
+use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase};
 use crate::services::downloader::DownloadService;
+use crate::services::export_html::HtmlExportService;
+use crate::services::export_markdown::MarkdownExportService;
 use crate::services::weibo_api::{
     clear_saved_cookie, load_saved_cookie, open_login_window as weibo_open_login, restore_saved_cookie,
 };
@@ -45,6 +47,69 @@ pub async fn start_download(
 #[tauri::command]
 pub fn cancel_download(state: State<'_, AppState>) {
     state.cancel_flag.store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub async fn export_posts(
+    request: ExportRequest,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let bundle = crate::services::cache::load_cache_bundle_sync(&request.output_dir)
+        .map_err(|e| {
+            if matches!(e, AppError::Io(ref io_err) if io_err.kind() == std::io::ErrorKind::NotFound) {
+                "找不到缓存文件，请先完成下载".to_string()
+            } else if matches!(e, AppError::Parse(_)) {
+                "缓存文件已损坏，请重新下载".to_string()
+            } else {
+                format!("读取缓存失败: {e}")
+            }
+        })?;
+    let export_context = bundle.export_context;
+    let posts = bundle.posts;
+
+    if posts.is_empty() {
+        return Err("没有可导出的微博数据".to_string());
+    }
+
+    let _ = app.emit(
+        "download-progress",
+        ProgressEvent::new(
+            ProgressPhase::Exporting,
+            1,
+            1,
+            &format!("正在导出 {}...", format_label(&request.export_format)),
+        ),
+    );
+
+    match request.export_format {
+        ExportFormat::MarkdownSingle => MarkdownExportService::new()
+            .export(&posts, &request.output_dir, &export_context, true)
+            .await
+            .map_err(|e| format!("导出Markdown失败: {e}"))?,
+        ExportFormat::MarkdownPerPost => MarkdownExportService::new()
+            .export(&posts, &request.output_dir, &export_context, false)
+            .await
+            .map_err(|e| format!("导出Markdown(每条一文)失败: {e}"))?,
+        ExportFormat::Html => HtmlExportService::new()
+            .export(&posts, &request.output_dir)
+            .await
+            .map_err(|e| format!("导出HTML失败: {e}"))?,
+    }
+
+    let _ = app.emit(
+        "download-progress",
+        ProgressEvent::new(ProgressPhase::Complete, 1, 1, "导出完成！"),
+    );
+
+    Ok(format!("导出完成！已生成 {}", format_label(&request.export_format)))
+}
+
+fn format_label(fmt: &ExportFormat) -> &'static str {
+    match fmt {
+        ExportFormat::MarkdownSingle => "Markdown",
+        ExportFormat::MarkdownPerPost => "Markdown (每条一文)",
+        ExportFormat::Html => "HTML",
+    }
 }
 
 #[tauri::command]

@@ -3,8 +3,8 @@ use std::path::Path;
 use tokio::fs;
 
 use crate::error::AppError;
-use crate::models::WeiboPost;
-use crate::services::file_naming::{post_filename, sanitize_filename};
+use crate::models::{ExportContext, WeiboPost};
+use crate::services::file_naming::{markdown_export_filename, obsidian_post_filename};
 
 pub struct MarkdownExportService;
 
@@ -13,18 +13,30 @@ impl MarkdownExportService {
         Self
     }
 
-    pub async fn export(&self, posts: &[WeiboPost], output_dir: &str, single: bool) -> Result<(), AppError> {
+    pub async fn export(
+        &self,
+        posts: &[WeiboPost],
+        output_dir: &str,
+        export_context: &ExportContext,
+        single: bool,
+    ) -> Result<(), AppError> {
         let output_dir = Path::new(output_dir);
         if single {
-            self.export_single(posts, output_dir).await
+            self.export_single(posts, output_dir, export_context).await
         } else {
             self.export_per_post(posts, output_dir).await
         }
     }
 
-    pub async fn export_single(&self, posts: &[WeiboPost], output_dir: &Path) -> Result<(), AppError> {
+    pub async fn export_single(
+        &self,
+        posts: &[WeiboPost],
+        output_dir: &Path,
+        export_context: &ExportContext,
+    ) -> Result<(), AppError> {
         let mut content = String::new();
-        content.push_str(&format!("# {} 的微博导出\n\n", export_author_name(posts)));
+        content.push_str("# 微博备份\n\n");
+        content.push_str(&format!("时间范围：{}\n\n", export_context.date_range_label));
         content.push_str(&format!("共 {} 条微博\n\n", posts.len()));
         content.push_str("---\n\n");
 
@@ -33,7 +45,7 @@ impl MarkdownExportService {
             content.push_str("\n---\n\n");
         }
 
-        let dest = output_dir.join(single_export_filename(posts));
+        let dest = output_dir.join(single_export_filename(posts, export_context));
         fs::write(&dest, content).await.map_err(AppError::Io)?;
         Ok(())
     }
@@ -45,7 +57,7 @@ impl MarkdownExportService {
 
         for post in posts {
             let content = self.format_post(post, true);
-            let filename = post_filename(&post.created_at, &post.mblogid, "md");
+            let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
             let dest = posts_dir.join(&filename);
             fs::write(&dest, content).await.map_err(AppError::Io)?;
             index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
@@ -61,9 +73,13 @@ impl MarkdownExportService {
     fn format_post(&self, post: &WeiboPost, for_per_post_export: bool) -> String {
         let mut md = String::new();
 
-        md.push_str(&format!("## {}\n\n", post.author));
-
         let plain_text = html_to_markdown(&post.text);
+        if for_per_post_export {
+            md.push_str(&frontmatter(post));
+        } else {
+            md.push_str(&format!("{} · [原文链接]({})\n\n", post.created_at, post.source_url));
+        }
+
         md.push_str(&plain_text);
         md.push_str("\n\n");
 
@@ -89,14 +105,6 @@ impl MarkdownExportService {
             }
         }
 
-        md.push_str("### 元数据\n\n");
-        md.push_str(&format!("- 发布时间: {}\n", post.created_at));
-        md.push_str(&format!("- 作者: {}\n", post.author));
-        md.push_str(&format!("- 链接: {}\n", post.source_url));
-        if !post.tags.is_empty() {
-            md.push_str(&format!("- 标签: {}\n", post.tags.join(", ")));
-        }
-
         md
     }
 }
@@ -108,12 +116,41 @@ fn export_author_name(posts: &[WeiboPost]) -> String {
         .unwrap_or_else(|| "微博用户".to_string())
 }
 
-fn single_export_filename(posts: &[WeiboPost]) -> String {
-    format!("{}-微博导出.md", sanitize_filename(&export_author_name(posts)))
+fn single_export_filename(posts: &[WeiboPost], export_context: &ExportContext) -> String {
+    markdown_export_filename(&export_context.date_range_label, &export_author_name(posts))
 }
 
 fn html_to_markdown(html: &str) -> String {
     crate::utils::html::strip_html_tags(&convert_links(html))
+}
+
+fn extract_title_hint(post: &WeiboPost) -> String {
+    let plain = crate::utils::html::strip_html_tags(&post.text);
+    let trimmed = plain.trim();
+    if trimmed.is_empty() {
+        "微博".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn frontmatter(post: &WeiboPost) -> String {
+    let mut result = String::from("---\n");
+    result.push_str(&format!("author: \"{}\"\n", yaml_escape(&post.author)));
+    result.push_str(&format!("created_at: \"{}\"\n", yaml_escape(&post.created_at)));
+    result.push_str(&format!("source_url: \"{}\"\n", yaml_escape(&post.source_url)));
+    if !post.tags.is_empty() {
+        result.push_str("tags:\n");
+        for tag in &post.tags {
+            result.push_str(&format!("  - \"{}\"\n", yaml_escape(tag)));
+        }
+    }
+    result.push_str("---\n\n");
+    result
+}
+
+fn yaml_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn convert_links(html: &str) -> String {

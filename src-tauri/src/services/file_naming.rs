@@ -49,7 +49,21 @@ pub fn post_filename(created_at: &str, mblogid: &str, extension: &str) -> String
     format!("{date_prefix}_{mblogid}.{extension}")
 }
 
-fn parse_date_prefix(created_at: &str) -> String {
+pub fn obsidian_post_filename(created_at: &str, title_hint: &str, extension: &str) -> String {
+    let date_prefix = parse_date_prefix(created_at);
+    let title = sanitize_filename(&truncate_chars(&normalize_title_hint(title_hint), 10));
+    format!("{date_prefix}-{title}.{extension}")
+}
+
+pub fn markdown_export_filename(date_range_label: &str, author_name: &str) -> String {
+    format!(
+        "{}-{}.md",
+        sanitize_filename(date_range_label),
+        sanitize_filename(author_name)
+    )
+}
+
+pub fn parse_date_prefix(created_at: &str) -> String {
     if created_at.len() >= 10 && created_at.chars().nth(4) == Some('-') {
         return created_at[..10].to_string();
     }
@@ -79,4 +93,18 @@ fn parse_date_prefix(created_at: &str) -> String {
     }
 
     "unknown".to_string()
+}
+
+fn normalize_title_hint(input: &str) -> String {
+    let collapsed = input.split_whitespace().collect::<String>();
+    let trimmed = collapsed.trim();
+    if trimmed.is_empty() {
+        "微博".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn truncate_chars(input: &str, limit: usize) -> String {
+    input.chars().take(limit).collect()
 }

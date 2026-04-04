@@ -9,46 +9,40 @@ interface StepTargetProps {
 export default function StepTarget({ profileUrl, onProfileUrlChange, onNext }: StepTargetProps) {
   const valid = profileUrl.length > 0 && isValidProfileUrl(profileUrl);
 
-  const handleKey = (e: React.KeyboardEvent) => {
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && valid) onNext();
   };
 
+  const inputState = profileUrl.length === 0 ? "" : valid ? "input--valid" : "input--error";
+
   return (
-    <div className="step-content step-target">
-      <div className="step-icon">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <circle className="icon-soft" cx="24" cy="24" r="22" />
-          <path className="icon-accent" d="M17 18C17 15.79 18.79 14 21 14H27C29.21 14 31 15.79 31 18V22C31 24.21 29.21 26 27 26H21C18.79 26 17 24.21 17 22V18Z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-          <circle className="icon-accent" cx="30" cy="30" r="5" />
-          <path className="icon-contrast" d="M28 30H32" strokeWidth="1.5" strokeLinecap="round"/>
-        </svg>
-      </div>
-      <h2 className="step-title">输入博主主页地址</h2>
-      <p className="step-desc">粘贴你想下载微博的用户主页链接</p>
-      <div className="input-group">
-        <input
-          className={`wizard-input${profileUrl.length > 0 && !isValidProfileUrl(profileUrl) ? " error" : ""}${valid ? " success" : ""}`}
-          type="text"
-          placeholder="https://www.weibo.com/u/2166767661"
-          value={profileUrl}
-          onChange={(e) => onProfileUrlChange(e.target.value.trim())}
-          onKeyDown={handleKey}
-          autoFocus
-        />
-        {valid && <span className="input-check">✓</span>}
-      </div>
-      {profileUrl.length > 0 && !isValidProfileUrl(profileUrl) && (
-        <p className="input-error">请输入有效的微博主页地址</p>
+    <div className="step-enter">
+      <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-text)", marginBottom: 6, letterSpacing: "-0.01em" }}>
+        博主主页地址
+      </h2>
+      <p className="form-hint" style={{ marginBottom: 20 }}>
+        输入要备份的微博博主主页链接，或直接输入 UID
+      </p>
+
+      <input
+        className={`input ${inputState}`}
+        type="text"
+        placeholder="https://www.weibo.com/u/2166767661"
+        value={profileUrl}
+        onChange={(e) => onProfileUrlChange(e.target.value.trim())}
+        onKeyDown={handleKey}
+        autoFocus
+      />
+
+      {profileUrl.length > 0 && !valid && (
+        <p style={{ fontSize: 12, color: "var(--color-danger)", marginTop: 8 }}>
+          请输入包含 UID 的微博主页地址，或直接输入 UID
+        </p>
       )}
-      <p className="step-example">示例：https://www.weibo.com/u/2166767661</p>
-      <button
-        className="btn-wizard btn-wizard-primary"
-        onClick={onNext}
-        disabled={!valid}
-        type="button"
-      >
-        下一步
-      </button>
+
+      <p className="form-hint" style={{ marginTop: 12 }}>
+        示例：https://www.weibo.com/u/2166767661 或直接输入 UID 数字
+      </p>
     </div>
   );
 }

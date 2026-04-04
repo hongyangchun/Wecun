@@ -1,6 +1,6 @@
-use tauri_app_lib::models::{WeiboImage, WeiboPost};
+use tauri_app_lib::models::{ExportContext, WeiboImage, WeiboPost};
 use tauri_app_lib::services::export_markdown::MarkdownExportService;
-use tauri_app_lib::services::sanitize_filename;
+use tauri_app_lib::services::markdown_export_filename;
 
 fn sample_posts() -> Vec<WeiboPost> {
     vec![WeiboPost {
@@ -29,13 +29,21 @@ async fn test_markdown_single() {
     std::fs::create_dir_all(&dir).unwrap();
 
     let svc = MarkdownExportService::new();
-    svc.export_single(&posts, &dir).await.unwrap();
+    svc.export_single(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
-    let output = dir.join(format!("{}-微博导出.md", sanitize_filename("测试用户")));
+    let output = dir.join(markdown_export_filename("2024-01-01至2024-01-31", "测试用户"));
     assert!(output.exists());
 
     let content = std::fs::read_to_string(&output).unwrap();
-    assert!(content.contains("测试用户"));
+    assert!(content.contains("# 微博备份"));
     assert!(content.contains("测试微博内容"));
     assert!(content.contains("images/img.jpg"));
 

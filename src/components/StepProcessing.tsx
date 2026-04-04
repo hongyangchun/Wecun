@@ -1,0 +1,229 @@
+import { useEffect, useState } from "react";
+import { LogPanel, ProgressRing } from "./ui";
+import { DONATION_CONFIG } from "../lib/app-config";
+import type { ProcessStatus } from "../state/wizard-reducer";
+
+interface StepProcessingProps {
+  processStatus: Exclude<ProcessStatus, "idle">;
+  phase: string;
+  progress: number;
+  current: number;
+  total: number;
+  errorMessage?: string;
+  logs: string[];
+  onStop: () => void;
+  onReset: () => void;
+  onOpenOutputDir: () => void;
+}
+
+function friendlyError(msg: string): string {
+  if (msg.includes("403") || msg.includes("Forbidden")) return "登录已失效，请重新登录后再试";
+  if (msg.includes("404") || msg.includes("not found")) return "未找到该用户，请检查链接是否正确";
+  if (msg.includes("网络") || msg.includes("Network")) return "网络连接失败，请检查网络后重试";
+  return msg;
+}
+
+export default function StepProcessing({
+  processStatus,
+  phase,
+  progress,
+  current,
+  total,
+  errorMessage,
+  logs,
+  onStop,
+  onReset,
+  onOpenOutputDir,
+}: StepProcessingProps) {
+  const [showDonation, setShowDonation] = useState(false);
+
+  useEffect(() => {
+    if (processStatus === "done") setShowDonation(true);
+  }, [processStatus]);
+
+  const renderLog = () =>
+    logs.length > 0 ? <LogPanel logs={logs} /> : null;
+
+  return (
+    <div className="processing-overlay">
+      <div className="processing-dialog">
+        {processStatus === "downloading" && (
+          <div className="step-enter">
+            <div className="processing-header">
+              <span className="processing-icon processing-icon--accent animate-spin-slow">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="var(--color-accent)" strokeWidth="1.5" strokeDasharray="4 3" fill="none" />
+                </svg>
+              </span>
+              <h2 className="processing-title">{phase || "正在下载..."}</h2>
+            </div>
+
+            {progress > 0 ? (
+              <div className="center-illustration" style={{ padding: "20px 0" }}>
+                <ProgressRing progress={progress} />
+                {total > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>已处理 {current} / {total}</p>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: "24px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                <div style={{ width: "100%", height: 6, borderRadius: 3, background: "var(--color-border)", overflow: "hidden" }}>
+                  <div className="progress-shimmer" style={{ height: "100%", width: "33%", borderRadius: 3 }} />
+                </div>
+                <p style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>{phase}</p>
+              </div>
+            )}
+
+            {renderLog()}
+
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-danger" style={{ width: "100%" }} onClick={onStop} type="button">
+                停止下载
+              </button>
+            </div>
+          </div>
+        )}
+
+        {processStatus === "exporting" && (
+          <div className="step-enter">
+            <div className="processing-header">
+              <span className="processing-icon processing-icon--accent">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--color-accent)" strokeWidth="1.5" />
+                  <path d="M5 6H11M5 8H11M5 10H9" stroke="var(--color-accent)" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              </span>
+              <h2 className="processing-title">正在导出...</h2>
+            </div>
+
+            <div className="center-illustration" style={{ padding: "24px 0" }}>
+              <svg width="72" height="72" viewBox="0 0 80 80" className="animate-spin-slow" style={{ animationDuration: "3s" }}>
+                <circle cx="40" cy="40" r="32" fill="none" stroke="var(--color-border)" strokeWidth="5" />
+                <circle cx="40" cy="40" r="32" fill="none" stroke="var(--color-accent)" strokeWidth="5" strokeLinecap="round" strokeDasharray="60 140" />
+              </svg>
+              <p style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{phase || "正在导出..."}</p>
+            </div>
+
+            {renderLog()}
+          </div>
+        )}
+
+        {processStatus === "done" && (
+          <div className="step-enter">
+            <div className="processing-header">
+              <span className="processing-icon processing-icon--success">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path className="animate-check-draw" d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <h2 className="processing-title">处理完成！</h2>
+            </div>
+
+            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>
+              微博已下载并导出完成
+            </p>
+
+            {renderLog()}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={onOpenOutputDir} type="button">
+                打开目录
+              </button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onReset} type="button">
+                重新开始
+              </button>
+            </div>
+          </div>
+        )}
+
+        {processStatus === "error" && (
+          <div className="step-enter">
+            <div className="processing-header">
+              <span className="processing-icon processing-icon--danger">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M4 4L12 12M12 4L4 12" stroke="var(--color-danger)" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </span>
+              <h2 className="processing-title">下载出错</h2>
+            </div>
+
+            <div className="error-box" style={{ marginBottom: 20 }}>
+              {friendlyError(errorMessage || "")}
+            </div>
+
+            {renderLog()}
+
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-secondary" style={{ width: "100%" }} onClick={onReset} type="button">
+                返回重试
+              </button>
+            </div>
+          </div>
+        )}
+
+        {processStatus === "cancelled" && (
+          <div className="step-enter">
+            <div className="processing-header">
+              <span className="processing-icon processing-icon--warning">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <rect x="3" y="3" width="8" height="8" rx="1.5" stroke="var(--color-warning)" strokeWidth="1.5" />
+                </svg>
+              </span>
+              <h2 className="processing-title">已取消</h2>
+            </div>
+
+            {renderLog()}
+
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-primary" style={{ width: "100%" }} onClick={onReset} type="button">
+                返回
+              </button>
+            </div>
+          </div>
+        )}
+
+        {processStatus === "done" && showDonation && (
+          <div className="donation-overlay" role="dialog" aria-modal="true" aria-labelledby="donation-title">
+            <div className="donation-card">
+              <button className="donation-close" type="button" onClick={() => setShowDonation(false)} aria-label="关闭">
+                ×
+              </button>
+
+              <span className="donation-badge">导出完成</span>
+
+              <h3 id="donation-title" style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text)", marginBottom: 6 }}>
+                {DONATION_CONFIG.title}
+              </h3>
+              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 16 }}>
+                {DONATION_CONFIG.subtitle}
+              </p>
+
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                {DONATION_CONFIG.qrImagePath ? (
+                  <img src={DONATION_CONFIG.qrImagePath} alt="打赏二维码" className="donation-qr" />
+                ) : (
+                  <div className="donation-qr" style={{ display: "flex", alignItems: "center", justifyContent: "center", borderStyle: "dashed", borderWidth: 2 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-accent)" }}>请替换二维码图片</span>
+                  </div>
+                )}
+              </div>
+
+              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>
+                个人微信：{DONATION_CONFIG.wechatId}
+              </p>
+
+              <button
+                className="btn btn-primary"
+                style={{ width: "100%", marginTop: 12 }}
+                type="button"
+                onClick={() => setShowDonation(false)}
+              >
+                我知道了
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

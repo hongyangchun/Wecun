@@ -8,8 +8,8 @@ pub mod state;
 pub mod utils;
 
 use commands::{
-    cancel_download, clear_saved_cookie_cmd, has_saved_cookie, load_saved_cookie_cmd,
-    open_login_window, start_download,
+    cancel_download, clear_saved_cookie_cmd, export_posts, has_saved_cookie,
+    load_saved_cookie_cmd, open_login_window, start_download,
 };
 use state::AppState;
 
@@ -24,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_download,
             cancel_download,
+            export_posts,
             open_login_window,
             has_saved_cookie,
             load_saved_cookie_cmd,

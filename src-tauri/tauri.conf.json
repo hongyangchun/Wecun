@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Weibo Downloader",
+  "productName": "微博备份助手",
   "version": "0.1.0",
   "identifier": "com.hongyangchun.weibo-downloader",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "微博下载器 - Weibo Downloader",
+        "title": "微博备份助手",
         "width": 900,
         "height": 700,
         "resizable": true,
@@ -33,9 +33,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "resources": [
-      "assets/fonts/*"
     ]
   }
 }

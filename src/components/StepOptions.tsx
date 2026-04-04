@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
+import { SegmentedControl, FormField } from "./ui";
+import type { PostFilter, DateMode } from "../types/contracts";
 
-export type PostFilter = "original" | "all";
-export type DateMode = "all" | "range";
-export type ExportFormat = "pdf" | "md-single" | "md-multi";
+export type { PostFilter, DateMode } from "../types/contracts";
 
 interface StepOptionsProps {
   postFilter: PostFilter;
@@ -15,12 +15,8 @@ interface StepOptionsProps {
   onDateStartChange: (d: string) => void;
   dateEnd: string;
   onDateEndChange: (d: string) => void;
-  exportFormat: ExportFormat;
-  onExportFormatChange: (f: ExportFormat) => void;
   minTextLength: number;
   onMinTextLengthChange: (n: number) => void;
-  onBack: () => void;
-  onNext: () => void;
 }
 
 function MinLengthInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
@@ -31,93 +27,109 @@ function MinLengthInput({ value, onChange }: { value: number; onChange: (n: numb
   }, [value]);
 
   return (
-    <div className="min-length-row">
+    <div className="flex items-center gap-10">
       <input
         type="number"
-        className="wizard-input min-length-input"
+        className="input"
+        style={{ width: 80, height: 36 }}
         value={str}
         onChange={(e) => setStr(e.target.value)}
         onBlur={() => onChange(Math.max(0, Math.min(500, parseInt(str) || 0)))}
         min={0}
         max={500}
       />
-      <span className="min-length-hint">字数少于该值的微博将被跳过（0 = 不过滤）</span>
+      <span className="form-hint" style={{ margin: 0 }}>
+        字数少于该值的微博将被跳过（0 = 不过滤）
+      </span>
     </div>
   );
 }
 
 export default function StepOptions({
-  postFilter, onPostFilterChange,
-  includeImages, onIncludeImagesChange,
-  dateMode, onDateModeChange,
-  dateStart, onDateStartChange,
-  dateEnd, onDateEndChange,
-  exportFormat, onExportFormatChange,
-  minTextLength, onMinTextLengthChange,
-  onBack, onNext,
+  postFilter,
+  onPostFilterChange,
+  includeImages,
+  onIncludeImagesChange,
+  dateMode,
+  onDateModeChange,
+  dateStart,
+  onDateStartChange,
+  dateEnd,
+  onDateEndChange,
+  minTextLength,
+  onMinTextLengthChange,
 }: StepOptionsProps) {
   return (
-    <div className="step-content step-options">
-      <div className="step-icon">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <circle className="icon-soft" cx="24" cy="24" r="22" />
-          <path className="icon-accent" d="M14 24H34M14 18H34M14 30H26" strokeWidth="2.5" strokeLinecap="round"/>
-        </svg>
-      </div>
-      <h2 className="step-title">选择下载选项</h2>
+    <div className="step-enter">
+      <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-text)", marginBottom: 20, letterSpacing: "-0.01em" }}>
+        下载选项
+      </h2>
 
-      <div className="option-group">
-        <label className="option-label">微博类型</label>
-        <div className="option-toggle">
-          <button className={`toggle-btn${postFilter === "original" ? " active" : ""}`} onClick={() => onPostFilterChange("original")} type="button">仅原创</button>
-          <button className={`toggle-btn${postFilter === "all" ? " active" : ""}`} onClick={() => onPostFilterChange("all")} type="button">全部微博</button>
-        </div>
+      <div className="step-section">
+        <FormField label="微博类型">
+          <SegmentedControl
+            options={[
+              { value: "original", label: "仅原创" },
+              { value: "all", label: "全部" },
+            ]}
+            value={postFilter}
+            onChange={onPostFilterChange}
+            ariaLabel="微博类型"
+          />
+        </FormField>
       </div>
 
-      <div className="option-group">
-        <label className="option-checkbox">
-          <input type="checkbox" checked={includeImages} onChange={(e) => onIncludeImagesChange(e.target.checked)} />
-          <span>包含图片</span>
+      <div className="step-section">
+        <FormField label="时间范围">
+          <SegmentedControl
+            options={[
+              { value: "all", label: "全部" },
+              { value: "range", label: "指定时间段" },
+            ]}
+            value={dateMode}
+            onChange={onDateModeChange}
+            ariaLabel="时间范围"
+          />
+          {dateMode === "range" && (
+            <div className="flex items-center gap-10" style={{ marginTop: 12 }}>
+              <input
+                type="date"
+                className="input"
+                style={{ height: 36 }}
+                value={dateStart}
+                onChange={(e) => onDateStartChange(e.target.value)}
+              />
+              <span style={{ fontSize: 13, color: "var(--color-text-tertiary)" }}>至</span>
+              <input
+                type="date"
+                className="input"
+                style={{ height: 36 }}
+                value={dateEnd}
+                onChange={(e) => onDateEndChange(e.target.value)}
+              />
+            </div>
+          )}
+        </FormField>
+      </div>
+
+      <div style={{ padding: "4px 0", marginBottom: 16 }}>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={includeImages}
+            onChange={(e) => onIncludeImagesChange(e.target.checked)}
+          />
+          <div>
+            <span className="check-label">包含图片</span>
+            <p className="check-hint">下载微博中包含的所有图片到本地</p>
+          </div>
         </label>
       </div>
 
-      <div className="option-group">
-        <label className="option-label">时间范围</label>
-        <div className="option-toggle">
-          <button className={`toggle-btn${dateMode === "all" ? " active" : ""}`} onClick={() => onDateModeChange("all")} type="button">全部时间</button>
-          <button className={`toggle-btn${dateMode === "range" ? " active" : ""}`} onClick={() => onDateModeChange("range")} type="button">指定时间段</button>
-        </div>
-        {dateMode === "range" && (
-          <div className="date-row">
-            <input type="date" className="wizard-input" value={dateStart} onChange={(e) => onDateStartChange(e.target.value)} />
-            <span className="date-sep">至</span>
-            <input type="date" className="wizard-input" value={dateEnd} onChange={(e) => onDateEndChange(e.target.value)} />
-          </div>
-        )}
-      </div>
-
-      <div className="option-group">
-        <label className="option-label">导出格式</label>
-        <div className="option-toggle option-toggle--three">
-          <button className={`toggle-btn${exportFormat === "pdf" ? " active" : ""}`} onClick={() => onExportFormatChange("pdf")} type="button">PDF</button>
-          <button className={`toggle-btn${exportFormat === "md-single" ? " active" : ""}`} onClick={() => onExportFormatChange("md-single")} type="button">Markdown</button>
-          <button className={`toggle-btn${exportFormat === "md-multi" ? " active" : ""}`} onClick={() => onExportFormatChange("md-multi")} type="button">每博一文</button>
-        </div>
-        <p className="option-hint">
-          {exportFormat === "pdf" && "所有微博合并为一个 PDF 文件"}
-          {exportFormat === "md-single" && "所有微博合并为一个 Markdown 文件"}
-          {exportFormat === "md-multi" && "每条微博一个独立的 Markdown 文件"}
-        </p>
-      </div>
-
-      <div className="option-group">
-        <label className="option-label">忽略短微博</label>
-        <MinLengthInput value={minTextLength} onChange={onMinTextLengthChange} />
-      </div>
-
-      <div className="wizard-actions">
-        <button className="btn-wizard btn-wizard-secondary" onClick={onBack} type="button">上一步</button>
-        <button className="btn-wizard btn-wizard-primary" onClick={onNext} type="button">下一步</button>
+      <div className="step-section">
+        <FormField label="忽略短微博" hint="推荐默认值 20">
+          <MinLengthInput value={minTextLength} onChange={onMinTextLengthChange} />
+        </FormField>
       </div>
     </div>
   );

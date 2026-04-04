@@ -1,275 +1,226 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback } from "react";
 import StepIndicator from "./components/StepIndicator";
 import StepLogin from "./components/StepLogin";
 import StepTarget from "./components/StepTarget";
-import StepOptions, { PostFilter, DateMode, ExportFormat } from "./components/StepOptions";
-import StepPath from "./components/StepPath";
-import StepDownload from "./components/StepDownload";
-import { startDownload, cancelDownload, onProgress, onCookieReceived, onLoginInvalid, openOutputDir, hasSavedCookie, loadSavedCookie, clearSavedCookie } from "./lib/tauri-bridge";
-import { buildDownloadRequest, extractUidFromUrl } from "./lib/validation";
-import type { ProgressPhase } from "./types/contracts";
+import StepOptions from "./components/StepOptions";
+import StepExportSettings from "./components/StepExportSettings";
+import StepProcessing from "./components/StepProcessing";
+import { WizardProvider, useWizard } from "./state/wizard-context";
+import { startDownload, cancelDownload, exportPosts, openOutputDir, clearSavedCookie } from "./lib/tauri-bridge";
+import { buildDownloadRequest, extractUidFromUrl, isValidProfileUrl } from "./lib/validation";
+import type { ExportFormat } from "./types/contracts";
 import "./App.css";
 
-const STEPS = ["登录", "目标", "选项", "保存", "下载"];
+const STEPS = ["登录", "目标", "选项", "导出"];
 
-const PHASE_TEXT: Record<ProgressPhase, string> = {
-  FetchingUserInfo: "正在获取用户信息",
-  FetchingPostList: "正在获取微博列表",
-  FetchingLongText: "正在获取长文内容",
-  DownloadingImages: "正在下载图片",
-  Exporting: "正在导出文件",
-  Complete: "下载完成",
-  Error: "出错了",
-  Cancelled: "已取消",
-};
-
-interface PersistedSettings {
-  postFilter: PostFilter;
-  includeImages: boolean;
-  dateMode: DateMode;
-  exportFormat: ExportFormat;
-  minTextLength: number;
-}
-
-function loadSettings(): PersistedSettings {
-  try {
-    const raw = localStorage.getItem("weibo-dl-settings");
-    if (raw) return JSON.parse(raw);
-  } catch {
-    void 0;
-  }
-  return {
-    postFilter: "original",
-    includeImages: true,
-    dateMode: "all",
-    exportFormat: "md-single",
-    minTextLength: 0,
+function formatLabel(fmt: ExportFormat): string {
+  const labels: Record<ExportFormat, string> = {
+    html: "HTML",
+    "md-single": "Markdown",
+    "md-multi": "Markdown（分文件）",
   };
+  return labels[fmt];
 }
 
-function saveSettings(s: PersistedSettings) {
-  try {
-    localStorage.setItem("weibo-dl-settings", JSON.stringify(s));
-  } catch {
-    void 0;
-  }
-}
+function AppShell() {
+  const { state, dispatch } = useWizard();
+  const isProcessing = state.processStatus !== "idle";
 
-function App() {
-  const saved = useRef(loadSettings());
-  const [step, setStep] = useState(0);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [cookie, setCookie] = useState("");
-  const [profileUrl, setProfileUrl] = useState("");
-  const [postFilter, setPostFilter] = useState<PostFilter>(saved.current.postFilter);
-  const [includeImages, setIncludeImages] = useState(saved.current.includeImages);
-  const [dateMode, setDateMode] = useState<DateMode>(saved.current.dateMode);
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
-  const [exportFormat, setExportFormat] = useState<ExportFormat>(saved.current.exportFormat);
-  const [minTextLength, setMinTextLength] = useState(saved.current.minTextLength);
-  const [outputDir, setOutputDir] = useState("");
-  const [loginError, setLoginError] = useState<string | undefined>();
+  const canGoNext = useCallback(() => {
+    if (state.step === 0) return state.isLoggedIn;
+    if (state.step === 1) return state.profileUrl.length > 0 && isValidProfileUrl(state.profileUrl);
+    if (state.step === 3) return !!state.outputDir;
+    return true;
+  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir]);
 
-  const [dlStatus, setDlStatus] = useState<"downloading" | "done" | "cancelled" | "error">("downloading");
-  const [progress, setProgress] = useState(0);
-  const [phase, setPhase] = useState("");
-  const [current, setCurrent] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [errorMsg, setErrorMsg] = useState<string | undefined>();
-  const [logs, setLogs] = useState<string[]>([]);
-  const unlistenRef = useRef<(() => void) | null>(null);
+  const handleNext = useCallback(async () => {
+    if (state.step === 3) {
+      dispatch({ type: "START_PROCESSING" });
 
-  useEffect(() => {
-    let cancelled = false;
-    onProgress((e) => {
-      if (cancelled) return;
-      setCurrent(e.current);
-      setTotal(e.total);
-      setLogs((p) => [...p, e.message]);
+      try {
+        const uid = extractUidFromUrl(state.profileUrl);
+        if (!uid) {
+          dispatch({ type: "PROCESS_ERROR", message: "无法从链接中提取用户ID" });
+          return;
+        }
 
-      if (e.phase === "FetchingPostList") {
-        setProgress(0);
-        setPhase(`${e.message}`);
-      } else if (e.phase === "Complete") {
-        setProgress(100);
-        setPhase(PHASE_TEXT[e.phase]);
-        setDlStatus("done");
-      } else if (e.phase === "Cancelled") {
-        setDlStatus("cancelled");
-        setPhase(PHASE_TEXT[e.phase]);
-      } else if (e.phase === "Error") {
-        setDlStatus("error");
-        setErrorMsg(e.message);
-        setPhase(PHASE_TEXT[e.phase]);
-      } else {
-        const pct = e.total > 0 ? Math.round((e.current / e.total) * 100) : 0;
-        setProgress(pct);
-        setPhase(PHASE_TEXT[e.phase] || e.message);
-      }
-    }).then((fn) => { if (!cancelled) unlistenRef.current = fn; });
-    return () => { cancelled = true; unlistenRef.current?.(); };
-  }, []);
+        const result = await startDownload(buildDownloadRequest({
+          uid,
+          cookie: state.cookie,
+          filter: state.postFilter,
+          includeImages: state.includeImages,
+          dateMode: state.dateMode,
+          dateStart: state.dateStart,
+          dateEnd: state.dateEnd,
+          outputDir: state.outputDir,
+          minTextLength: state.minTextLength,
+        }));
 
-  useEffect(() => {
-    const fn = onCookieReceived((c) => {
-      setCookie(c);
-      setIsLoggedIn(true);
-      setLoginError(undefined);
-      setStep((prev) => (prev === 0 ? 1 : prev));
-    });
-    return () => { fn.then((u) => u()); };
-  }, []);
+        dispatch({ type: "ADD_LOG", message: result });
+        dispatch({ type: "EXPORT_START" });
+        dispatch({ type: "ADD_LOG", message: `正在导出 ${formatLabel(state.exportFormat)}...` });
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void hasSavedCookie().then((has) => {
-      if (!has || cancelled) {
-        return;
-      }
-
-      void loadSavedCookie()
-        .then((c) => {
-          if (cancelled) return;
-          setCookie(c);
-          setIsLoggedIn(true);
-          setLoginError(undefined);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setCookie("");
-          setIsLoggedIn(false);
+        const exportResult = await exportPosts({
+          output_dir: state.outputDir,
+          export_format: state.exportFormat,
         });
-    });
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const fn = onLoginInvalid((message) => {
-      setCookie("");
-      setIsLoggedIn(false);
-      setLoginError(message);
-      setStep(0);
-      setDlStatus("error");
-      setErrorMsg(message);
-    });
-    return () => { fn.then((u) => u()); };
-  }, []);
-
-  const handleLogout = async () => {
-    await clearSavedCookie();
-    setCookie("");
-    setIsLoggedIn(false);
-    setLoginError(undefined);
-    setStep(0);
-  };
-
-  useEffect(() => {
-    saveSettings({ postFilter, includeImages, dateMode, exportFormat, minTextLength });
-  }, [postFilter, includeImages, dateMode, exportFormat, minTextLength]);
-
-  const handleStart = async () => {
-    setStep(4);
-    setDlStatus("downloading");
-    setProgress(0);
-    setPhase("正在获取用户信息");
-    setCurrent(0);
-    setTotal(0);
-    setErrorMsg(undefined);
-    setLogs(["开始下载..."]);
-
-    try {
-      const uid = extractUidFromUrl(profileUrl);
-      if (!uid) {
-        setDlStatus("error");
-        setErrorMsg("无法从链接中提取用户ID");
-        return;
+        dispatch({ type: "ADD_LOG", message: exportResult });
+        dispatch({ type: "PROCESS_COMPLETE" });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("已取消")) {
+          dispatch({ type: "PROCESS_CANCEL" });
+        } else {
+          dispatch({ type: "PROCESS_ERROR", message: msg });
+        }
       }
-
-      const result = await startDownload(buildDownloadRequest({
-        uid, cookie, filter: postFilter, includeImages,
-        dateMode, dateStart, dateEnd, exportFormat, outputDir,
-        minTextLength,
-      }));
-      setLogs((p) => [...p, result]);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("已取消")) {
-        setDlStatus("cancelled");
-      } else {
-        setDlStatus("error");
-        setErrorMsg(msg);
-      }
+    } else if (canGoNext()) {
+      dispatch({ type: "NEXT_STEP" });
     }
-  };
+  }, [state, dispatch, canGoNext]);
 
-  const handleStop = async () => {
+  const handleBack = useCallback(() => {
+    dispatch({ type: "PREV_STEP" });
+  }, [dispatch]);
+
+  const handleStop = useCallback(async () => {
     await cancelDownload();
-    setLogs((p) => [...p, "正在取消..."]);
-  };
+    dispatch({ type: "ADD_LOG", message: "正在取消..." });
+  }, [dispatch]);
 
-  const handleReset = () => {
-    setStep(0);
-    setDlStatus("downloading");
-    setProgress(0);
-    setPhase("");
-    setCurrent(0);
-    setTotal(0);
-    setErrorMsg(undefined);
-    setLogs([]);
-  };
+  const handleReset = useCallback(() => {
+    dispatch({ type: "RESET" });
+  }, [dispatch]);
 
-  const handleOpenOutputDir = async () => {
-    if (outputDir) {
-      await openOutputDir(outputDir);
-    }
-  };
+  const handleOpenOutputDir = useCallback(async () => {
+    if (state.outputDir) await openOutputDir(state.outputDir);
+  }, [state.outputDir]);
+
+  const showFooter = !isProcessing;
 
   return (
-    <div className="app-root">
-      <header className="app-header">
-        <h1>微博下载器</h1>
-      </header>
+    <div className="app-shell">
+      <div className="app-window">
+        <header className="app-header">
+          <h1 className="app-title">微博备份助手</h1>
+          {state.isLoggedIn && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span className="auth-badge">
+                <span className="auth-dot" />
+                已登录
+              </span>
+              <button
+                className="logout-btn"
+                onClick={() => {
+                  if (window.confirm("确定要退出登录吗？")) {
+                    void clearSavedCookie().then(() => dispatch({ type: "LOGOUT" }));
+                  }
+                }}
+                type="button"
+              >
+                退出
+              </button>
+            </div>
+          )}
+        </header>
 
-      <div className="wizard-container">
-        <div className="wizard-card">
-          <StepIndicator steps={STEPS} currentStep={step} />
+        <StepIndicator steps={STEPS} currentStep={state.step} />
 
-          {step === 0 && <StepLogin isLoggedIn={isLoggedIn} onNext={() => setStep(1)} onLogout={handleLogout} restoreError={loginError} />}
-          {step === 1 && <StepTarget profileUrl={profileUrl} onProfileUrlChange={setProfileUrl} onNext={() => setStep(2)} />}
-          {step === 2 && (
+        <div className="step-content">
+          {state.step === 0 && (
+            <StepLogin
+              isLoggedIn={state.isLoggedIn}
+              restoreError={state.loginError}
+            />
+          )}
+          {state.step === 1 && (
+            <StepTarget
+              profileUrl={state.profileUrl}
+              onProfileUrlChange={(url) => dispatch({ type: "SET_PROFILE_URL", url })}
+              onNext={() => dispatch({ type: "NEXT_STEP" })}
+            />
+          )}
+          {state.step === 2 && (
             <StepOptions
-              postFilter={postFilter} onPostFilterChange={setPostFilter}
-              includeImages={includeImages} onIncludeImagesChange={setIncludeImages}
-              dateMode={dateMode} onDateModeChange={setDateMode}
-              dateStart={dateStart} onDateStartChange={setDateStart}
-              dateEnd={dateEnd} onDateEndChange={setDateEnd}
-              exportFormat={exportFormat} onExportFormatChange={setExportFormat}
-              minTextLength={minTextLength} onMinTextLengthChange={setMinTextLength}
-              onBack={() => setStep(1)} onNext={() => setStep(3)}
+              postFilter={state.postFilter}
+              onPostFilterChange={(f) => dispatch({ type: "SET_POST_FILTER", filter: f })}
+              includeImages={state.includeImages}
+              onIncludeImagesChange={(v) => dispatch({ type: "SET_INCLUDE_IMAGES", value: v })}
+              dateMode={state.dateMode}
+              onDateModeChange={(m) => dispatch({ type: "SET_DATE_MODE", mode: m })}
+              dateStart={state.dateStart}
+              onDateStartChange={(d) => dispatch({ type: "SET_DATE_START", date: d })}
+              dateEnd={state.dateEnd}
+              onDateEndChange={(d) => dispatch({ type: "SET_DATE_END", date: d })}
+              minTextLength={state.minTextLength}
+              onMinTextLengthChange={(n) => dispatch({ type: "SET_MIN_TEXT_LENGTH", length: n })}
             />
           )}
-          {step === 3 && (
-            <StepPath
-              outputDir={outputDir} onDirChange={setOutputDir}
-              onBack={() => setStep(2)} onStart={handleStart}
-            />
-          )}
-          {step === 4 && (
-            <StepDownload
-              phase={phase} progress={progress}
-              current={current} total={total}
-              status={dlStatus} errorMessage={errorMsg} logs={logs}
-              onStop={handleStop} onReset={handleReset} onOpenOutputDir={handleOpenOutputDir}
+          {state.step === 3 && (
+            <StepExportSettings
+              exportFormat={state.exportFormat}
+              onExportFormatChange={(f) => dispatch({ type: "SET_EXPORT_FORMAT", format: f })}
+              outputDir={state.outputDir}
+              onDirChange={(dir) => dispatch({ type: "SET_OUTPUT_DIR", dir })}
             />
           )}
         </div>
+
+        {showFooter && (
+          <div className="step-footer">
+            <div>
+              {state.step > 0 && (
+                <button className="btn btn-secondary" onClick={handleBack} type="button">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                    <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  上一步
+                </button>
+              )}
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={handleNext}
+              disabled={!canGoNext()}
+              type="button"
+            >
+              {state.step === 3 ? "开始下载" : (
+                <>
+                  下一步
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M6 3L10.5 8L6 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {isProcessing && (
+          <StepProcessing
+            processStatus={state.processStatus as Exclude<typeof state.processStatus, "idle">}
+            phase={state.phase}
+            progress={state.progress}
+            current={state.current}
+            total={state.total}
+            errorMessage={state.errorMessage}
+            logs={state.logs}
+            onStop={handleStop}
+            onReset={handleReset}
+            onOpenOutputDir={handleOpenOutputDir}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <WizardProvider>
+      <AppShell />
+    </WizardProvider>
   );
 }
 

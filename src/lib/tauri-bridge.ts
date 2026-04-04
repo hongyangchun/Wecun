@@ -1,10 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DownloadRequest, ProgressEvent } from "../types/contracts";
+import type { DownloadRequest, ExportRequest, ProgressEvent } from "../types/contracts";
 
 export async function startDownload(request: DownloadRequest): Promise<string> {
   return await invoke<string>("start_download", { request });
+}
+
+export async function exportPosts(request: ExportRequest): Promise<string> {
+  return await invoke<string>("export_posts", { request });
 }
 
 export async function cancelDownload(): Promise<void> {
