@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawUserInfo {
     pub data: RawUserData,
@@ -36,10 +37,8 @@ pub struct RawPost {
     pub mblogid: String,
     pub created_at: String,
     pub text: String,
-    #[serde(default)]
+    #[serde(default, alias = "isLongText")]
     pub is_long_text: Option<bool>,
-    #[serde(default)]
-    pub long_text_source: Option<serde_json::Value>,
     #[serde(default)]
     pub region_name: Option<String>,
     #[serde(default)]
@@ -50,6 +49,10 @@ pub struct RawPost {
     pub retweeted_status: Option<Box<RawPost>>,
     #[serde(default)]
     pub page_info: Option<serde_json::Value>,
+    #[serde(default)]
+    pub tag_struct: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub topic_struct: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,8 +67,12 @@ pub struct RawLongText {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RawLongTextData {
+    #[serde(default)]
     pub long_text_content: String,
+    #[serde(default)]
+    pub raw_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,4 +100,5 @@ pub struct WeiboPost {
     pub region: Option<String>,
     pub source_url: String,
     pub author: String,
+    pub tags: Vec<String>,
 }
