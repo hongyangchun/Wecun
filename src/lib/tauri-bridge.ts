@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { DownloadRequest, ProgressEvent } from "../types/contracts";
 
 export async function startDownload(request: DownloadRequest): Promise<string> {
@@ -15,7 +16,19 @@ export async function openLoginWindow(): Promise<void> {
 }
 
 export async function openOutputDir(dir: string): Promise<void> {
-  await invoke("plugin:opener|open_path", { path: dir });
+  await revealItemInDir(dir);
+}
+
+export async function hasSavedCookie(): Promise<boolean> {
+  return await invoke<boolean>("has_saved_cookie");
+}
+
+export async function loadSavedCookie(): Promise<string> {
+  return await invoke<string>("load_saved_cookie_cmd");
+}
+
+export async function clearSavedCookie(): Promise<void> {
+  await invoke("clear_saved_cookie_cmd");
 }
 
 export function onProgress(callback: (event: ProgressEvent) => void) {
@@ -26,6 +39,6 @@ export function onCookieReceived(callback: (cookie: string) => void) {
   return listen<string>("cookie-received", (e) => callback(e.payload));
 }
 
-export async function testApi(cookie: string, uid: string): Promise<string> {
-  return await invoke<string>("test_api", { cookie, uid });
+export function onLoginInvalid(callback: (message: string) => void) {
+  return listen<string>("login-invalid", (e) => callback(e.payload));
 }

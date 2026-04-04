@@ -5,7 +5,7 @@ import StepTarget from "./components/StepTarget";
 import StepOptions, { PostFilter, DateMode, ExportFormat } from "./components/StepOptions";
 import StepPath from "./components/StepPath";
 import StepDownload from "./components/StepDownload";
-import { startDownload, cancelDownload, onProgress, onCookieReceived, openOutputDir } from "./lib/tauri-bridge";
+import { startDownload, cancelDownload, onProgress, onCookieReceived, onLoginInvalid, openOutputDir, hasSavedCookie, loadSavedCookie, clearSavedCookie } from "./lib/tauri-bridge";
 import { buildDownloadRequest, extractUidFromUrl } from "./lib/validation";
 import type { ProgressPhase } from "./types/contracts";
 import "./App.css";
@@ -69,6 +69,7 @@ function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>(saved.current.exportFormat);
   const [minTextLength, setMinTextLength] = useState(saved.current.minTextLength);
   const [outputDir, setOutputDir] = useState("");
+  const [loginError, setLoginError] = useState<string | undefined>();
 
   const [dlStatus, setDlStatus] = useState<"downloading" | "done" | "cancelled" | "error">("downloading");
   const [progress, setProgress] = useState(0);
@@ -114,10 +115,58 @@ function App() {
     const fn = onCookieReceived((c) => {
       setCookie(c);
       setIsLoggedIn(true);
-      setStep(1);
+      setLoginError(undefined);
+      setStep((prev) => (prev === 0 ? 1 : prev));
     });
     return () => { fn.then((u) => u()); };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void hasSavedCookie().then((has) => {
+      if (!has || cancelled) {
+        return;
+      }
+
+      void loadSavedCookie()
+        .then((c) => {
+          if (cancelled) return;
+          setCookie(c);
+          setIsLoggedIn(true);
+          setLoginError(undefined);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setCookie("");
+          setIsLoggedIn(false);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const fn = onLoginInvalid((message) => {
+      setCookie("");
+      setIsLoggedIn(false);
+      setLoginError(message);
+      setStep(0);
+      setDlStatus("error");
+      setErrorMsg(message);
+    });
+    return () => { fn.then((u) => u()); };
+  }, []);
+
+  const handleLogout = async () => {
+    await clearSavedCookie();
+    setCookie("");
+    setIsLoggedIn(false);
+    setLoginError(undefined);
+    setStep(0);
+  };
 
   useEffect(() => {
     saveSettings({ postFilter, includeImages, dateMode, exportFormat, minTextLength });
@@ -190,7 +239,7 @@ function App() {
         <div className="wizard-card">
           <StepIndicator steps={STEPS} currentStep={step} />
 
-          {step === 0 && <StepLogin isLoggedIn={isLoggedIn} />}
+          {step === 0 && <StepLogin isLoggedIn={isLoggedIn} onNext={() => setStep(1)} onLogout={handleLogout} restoreError={loginError} />}
           {step === 1 && <StepTarget profileUrl={profileUrl} onProfileUrlChange={setProfileUrl} onNext={() => setStep(2)} />}
           {step === 2 && (
             <StepOptions

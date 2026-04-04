@@ -17,10 +17,10 @@ export default function StepTarget({ profileUrl, onProfileUrlChange, onNext }: S
     <div className="step-content step-target">
       <div className="step-icon">
         <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <circle cx="24" cy="24" r="22" fill="#E8F0FE" />
-          <path d="M17 18C17 15.79 18.79 14 21 14H27C29.21 14 31 15.79 31 18V22C31 24.21 29.21 26 27 26H21C18.79 26 17 24.21 17 22V18Z" stroke="#4F6EF7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-          <circle cx="30" cy="30" r="5" fill="#4F6EF7"/>
-          <path d="M28 30H32" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle className="icon-soft" cx="24" cy="24" r="22" />
+          <path className="icon-accent" d="M17 18C17 15.79 18.79 14 21 14H27C29.21 14 31 15.79 31 18V22C31 24.21 29.21 26 27 26H21C18.79 26 17 24.21 17 22V18Z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <circle className="icon-accent" cx="30" cy="30" r="5" />
+          <path className="icon-contrast" d="M28 30H32" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>
       </div>
       <h2 className="step-title">输入博主主页地址</h2>

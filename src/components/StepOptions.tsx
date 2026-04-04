@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+
 export type PostFilter = "original" | "all";
 export type DateMode = "all" | "range";
 export type ExportFormat = "pdf" | "md-single" | "md-multi";
@@ -21,6 +23,29 @@ interface StepOptionsProps {
   onNext: () => void;
 }
 
+function MinLengthInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const [str, setStr] = useState(String(value));
+
+  useEffect(() => {
+    setStr(String(value));
+  }, [value]);
+
+  return (
+    <div className="min-length-row">
+      <input
+        type="number"
+        className="wizard-input min-length-input"
+        value={str}
+        onChange={(e) => setStr(e.target.value)}
+        onBlur={() => onChange(Math.max(0, Math.min(500, parseInt(str) || 0)))}
+        min={0}
+        max={500}
+      />
+      <span className="min-length-hint">字数少于该值的微博将被跳过（0 = 不过滤）</span>
+    </div>
+  );
+}
+
 export default function StepOptions({
   postFilter, onPostFilterChange,
   includeImages, onIncludeImagesChange,
@@ -35,8 +60,8 @@ export default function StepOptions({
     <div className="step-content step-options">
       <div className="step-icon">
         <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <circle cx="24" cy="24" r="22" fill="#E8F0FE" />
-          <path d="M14 24H34M14 18H34M14 30H26" stroke="#4F6EF7" strokeWidth="2.5" strokeLinecap="round"/>
+          <circle className="icon-soft" cx="24" cy="24" r="22" />
+          <path className="icon-accent" d="M14 24H34M14 18H34M14 30H26" strokeWidth="2.5" strokeLinecap="round"/>
         </svg>
       </div>
       <h2 className="step-title">选择下载选项</h2>
@@ -87,17 +112,7 @@ export default function StepOptions({
 
       <div className="option-group">
         <label className="option-label">忽略短微博</label>
-        <div className="min-length-row">
-          <input
-            type="number"
-            className="wizard-input min-length-input"
-            value={minTextLength}
-            onChange={(e) => onMinTextLengthChange(Math.max(0, parseInt(e.target.value) || 0))}
-            min={0}
-            max={500}
-          />
-          <span className="min-length-hint">字数少于该值的微博将被跳过（0 = 不过滤）</span>
-        </div>
+        <MinLengthInput value={minTextLength} onChange={onMinTextLengthChange} />
       </div>
 
       <div className="wizard-actions">

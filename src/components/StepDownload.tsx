@@ -49,26 +49,26 @@ export default function StepDownload({
       <div className="step-icon">
         {isRunning && (
           <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" fill="#E8F0FE" />
-            <path d="M24 14V26L32 30" stroke="#4F6EF7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle className="icon-soft" cx="24" cy="24" r="22" />
+            <path className="icon-accent" d="M24 14V26L32 30" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         )}
         {isDone && (
           <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" fill="#E9F9EE" />
-            <path d="M15 24L21 30L33 18" stroke="#30A46C" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle className="icon-success-soft" cx="24" cy="24" r="22" />
+            <path className="icon-success" d="M15 24L21 30L33 18" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         )}
         {isError && (
           <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" fill="#FFEBEB" />
-            <path d="M18 18L30 30M30 18L18 30" stroke="#CD2B31" strokeWidth="2.5" strokeLinecap="round"/>
+            <circle className="icon-danger-soft" cx="24" cy="24" r="22" />
+            <path className="icon-danger" d="M18 18L30 30M30 18L18 30" strokeWidth="2.5" strokeLinecap="round"/>
           </svg>
         )}
         {isCancelled && (
           <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" fill="#FEF3E2" />
-            <rect x="18" y="18" width="12" height="12" rx="2" fill="#9A6700"/>
+            <circle className="icon-warning-soft" cx="24" cy="24" r="22" />
+            <rect className="icon-warning" x="18" y="18" width="12" height="12" rx="2" />
           </svg>
         )}
       </div>

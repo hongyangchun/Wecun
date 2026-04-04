@@ -10,6 +10,16 @@
   --warning-light: #fef3e2;
   --error: #cd2b31;
   --error-light: #ffebeb;
+  --icon-accent: var(--primary);
+  --icon-accent-soft: var(--primary-light);
+  --icon-success: var(--success);
+  --icon-success-soft: var(--success-light);
+  --icon-danger: var(--error);
+  --icon-danger-soft: var(--error-light);
+  --icon-warning: var(--warning);
+  --icon-warning-soft: var(--warning-light);
+  --icon-muted: var(--text-muted);
+  --icon-contrast: #ffffff;
 
   --bg: #f5f6fa;
   --card: #ffffff;
@@ -183,6 +193,52 @@ body {
   transition: transform 0.3s ease;
 }
 
+.step-icon .icon-soft {
+  fill: var(--icon-accent-soft);
+}
+
+.step-icon .icon-accent {
+  fill: var(--icon-accent);
+  stroke: var(--icon-accent);
+}
+
+.step-icon .icon-success-soft {
+  fill: var(--icon-success-soft);
+}
+
+.step-icon .icon-success {
+  fill: var(--icon-success);
+  stroke: var(--icon-success);
+}
+
+.step-icon .icon-danger-soft {
+  fill: var(--icon-danger-soft);
+}
+
+.step-icon .icon-danger {
+  fill: var(--icon-danger);
+  stroke: var(--icon-danger);
+}
+
+.step-icon .icon-warning-soft {
+  fill: var(--icon-warning-soft);
+}
+
+.step-icon .icon-warning {
+  fill: var(--icon-warning);
+  stroke: var(--icon-warning);
+}
+
+.step-icon .icon-muted {
+  fill: var(--icon-muted);
+  stroke: var(--icon-muted);
+}
+
+.step-icon .icon-contrast {
+  fill: var(--icon-contrast);
+  stroke: var(--icon-contrast);
+}
+
 .step-download .step-icon svg {
   animation: spin 2s linear infinite;
 }
@@ -269,6 +325,12 @@ body {
   margin-top: -12px;
   margin-bottom: 16px;
   align-self: flex-start;
+}
+
+.step-login-error {
+  margin-top: 12px;
+  margin-bottom: 0;
+  align-self: center;
 }
 
 /* ── Buttons ── */
