@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import StepIndicator from "./components/StepIndicator";
 import StepLogin from "./components/StepLogin";
 import StepTarget from "./components/StepTarget";
@@ -6,12 +6,44 @@ import StepOptions from "./components/StepOptions";
 import StepExportSettings from "./components/StepExportSettings";
 import StepProcessing from "./components/StepProcessing";
 import { WizardProvider, useWizard } from "./state/wizard-context";
-import { startDownload, cancelDownload, exportPosts, openOutputDir, clearSavedCookie } from "./lib/tauri-bridge";
+import {
+  startDownload,
+  cancelDownload,
+  exportPosts,
+  openOutputDir,
+  clearSavedCookie,
+  checkForAppUpdate,
+  relaunchApp,
+  type AppUpdate,
+  type UpdateProgressEvent,
+} from "./lib/tauri-bridge";
 import { buildDownloadRequest, extractUidFromUrl, isValidProfileUrl } from "./lib/validation";
 import type { ExportFormat } from "./types/contracts";
 import "./App.css";
 
 const STEPS = ["登录", "目标", "选项", "导出"];
+
+type UpdateToastStatus = "hidden" | "available" | "downloading" | "installing" | "error";
+
+interface UpdateToastState {
+  status: UpdateToastStatus;
+  version: string;
+  notes: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  chunkCount: number;
+  errorMessage: string;
+}
+
+const INITIAL_UPDATE_TOAST: UpdateToastState = {
+  status: "hidden",
+  version: "",
+  notes: "",
+  downloadedBytes: 0,
+  totalBytes: 0,
+  chunkCount: 0,
+  errorMessage: "",
+};
 
 function formatLabel(fmt: ExportFormat): string {
   const labels: Record<ExportFormat, string> = {
@@ -22,10 +54,147 @@ function formatLabel(fmt: ExportFormat): string {
   return labels[fmt];
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const rounded = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2);
+  return `${rounded} ${units[unitIndex]}`;
+}
+
+function getUpdateProgressPercent(downloadedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)));
+}
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("matchMedia" in window)) return;
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updatePreference);
+    };
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+interface UpdateToastProps {
+  state: UpdateToastState;
+  prefersReducedMotion: boolean;
+  onInstall: () => void;
+  onDismiss: () => void;
+}
+
+function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: UpdateToastProps) {
+  if (state.status === "hidden") return null;
+
+  const progressPercent = getUpdateProgressPercent(state.downloadedBytes, state.totalBytes);
+  const title = state.status === "available"
+    ? `发现新版本 ${state.version}`
+    : state.status === "downloading"
+      ? "正在下载更新…"
+      : state.status === "installing"
+        ? "正在安装更新…"
+        : "更新失败";
+
+  const details = state.status === "available"
+    ? state.notes || "新版本已可用，可立即下载并安装。"
+    : state.status === "downloading"
+      ? `${formatBytes(state.downloadedBytes)} / ${state.totalBytes > 0 ? formatBytes(state.totalBytes) : "未知大小"}`
+      : state.status === "installing"
+        ? "下载完成，正在应用更新…"
+        : state.errorMessage;
+
+  return (
+    <div
+      aria-live="polite"
+      role="status"
+      style={{
+        position: "fixed",
+        top: 16,
+        right: 16,
+        zIndex: 80,
+        width: "min(360px, calc(100vw - 32px))",
+        padding: 16,
+        borderRadius: "var(--radius-lg)",
+        border: "1px solid var(--color-border)",
+        background: "var(--color-bg-elevated)",
+        boxShadow: "0 20px 60px oklch(0 0 0 / 0.16)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+          <strong style={{ fontSize: 14, color: "var(--color-text)" }}>{title}</strong>
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>{details}</span>
+        </div>
+        {state.status !== "downloading" && state.status !== "installing" && (
+          <button className="btn btn-ghost" onClick={onDismiss} type="button" style={{ height: 28, padding: "0 10px", flexShrink: 0 }}>
+            关闭
+          </button>
+        )}
+      </div>
+
+      {state.status === "downloading" && (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>{progressPercent}%</span>
+            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>已接收 {state.chunkCount} 个数据块</span>
+          </div>
+          <div style={{ width: "100%", height: 8, borderRadius: 999, background: "var(--color-bg-inset)", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${progressPercent}%`,
+                height: "100%",
+                borderRadius: 999,
+                background: "var(--color-accent)",
+                transition: prefersReducedMotion ? "none" : "width 160ms cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      {state.status === "available" && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={onDismiss} type="button">
+            稍后
+          </button>
+          <button className="btn btn-primary" onClick={onInstall} type="button">
+            Download & Install
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppShell() {
   const { state, dispatch } = useWizard();
   const isProcessing = state.processStatus !== "idle";
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
+  const [updateToast, setUpdateToast] = useState<UpdateToastState>(INITIAL_UPDATE_TOAST);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const canGoNext = useCallback(() => {
     if (state.step === 0) return state.isLoggedIn;
@@ -98,6 +267,74 @@ function AppShell() {
     if (state.outputDir) await openOutputDir(state.outputDir);
   }, [state.outputDir]);
 
+  const dismissUpdateToast = useCallback(() => {
+    setUpdateToast(INITIAL_UPDATE_TOAST);
+    setAvailableUpdate(null);
+  }, []);
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (!availableUpdate) return;
+
+    try {
+      let downloadedBytes = 0;
+      let totalBytes = 0;
+      let chunkCount = 0;
+
+      setUpdateToast((current) => ({
+        ...current,
+        status: "downloading",
+        errorMessage: "",
+      }));
+
+      await availableUpdate.downloadAndInstall((event: UpdateProgressEvent) => {
+        switch (event.event) {
+          case "Started": {
+            totalBytes = event.data.contentLength ?? 0;
+            setUpdateToast((current) => ({
+              ...current,
+              status: "downloading",
+              totalBytes,
+              downloadedBytes: 0,
+              chunkCount: 0,
+            }));
+            break;
+          }
+          case "Progress": {
+            downloadedBytes += event.data.chunkLength;
+            chunkCount += 1;
+            setUpdateToast((current) => ({
+              ...current,
+              status: "downloading",
+              totalBytes,
+              downloadedBytes,
+              chunkCount,
+            }));
+            break;
+          }
+          case "Finished": {
+            setUpdateToast((current) => ({
+              ...current,
+              status: "installing",
+              downloadedBytes: totalBytes > 0 ? totalBytes : downloadedBytes,
+              totalBytes,
+              chunkCount,
+            }));
+            break;
+          }
+        }
+      });
+
+      await relaunchApp();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setUpdateToast((current) => ({
+        ...current,
+        status: "error",
+        errorMessage: message,
+      }));
+    }
+  }, [availableUpdate]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -113,10 +350,44 @@ function AppShell() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleNext, handleBack, state.step, isProcessing]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void checkForAppUpdate()
+      .then((update: AppUpdate | null) => {
+        if (!update || cancelled) return;
+
+        setAvailableUpdate(update);
+        setUpdateToast({
+          status: "available",
+          version: update.version,
+          notes: update.body?.trim() ?? "",
+          downloadedBytes: 0,
+          totalBytes: 0,
+          chunkCount: 0,
+          errorMessage: "",
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        console.warn("Failed to check for updates", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const showFooter = !isProcessing;
 
   return (
     <div className="app-shell">
+      <UpdateToast
+        state={updateToast}
+        prefersReducedMotion={prefersReducedMotion}
+        onInstall={handleInstallUpdate}
+        onDismiss={dismissUpdateToast}
+      />
       <div className="app-window">
         <header className="app-header">
           <h1 className="app-title">微博备份助手</h1>
@@ -260,6 +531,10 @@ function AppShell() {
             onReset={handleReset}
             onOpenOutputDir={handleOpenOutputDir}
           />
+        )}
+
+        {updateToast.status === "downloading" && getUpdateProgressPercent(updateToast.downloadedBytes, updateToast.totalBytes) === 100 && (
+          <div style={{ display: "none" }}>100%</div>
         )}
       </div>
     </div>

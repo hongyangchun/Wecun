@@ -618,12 +618,7 @@ pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
 }
 
 pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(stronghold) = open_stronghold_for_write(app) {
-        if let Ok(client) = stronghold.load_client(STRONGHOLD_CLIENT_NAME) {
-            let _ = client.store().delete(COOKIE_STORE_KEY);
-            let _ = stronghold.save();
-        }
-    }
+    let _ = fs::remove_file(stronghold_cookie_path(app));
     let _ = fs::remove_file(cookie_file_path(app));
 }
 

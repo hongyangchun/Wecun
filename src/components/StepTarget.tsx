@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+
+import { listDownloadHistory, type HistoryEntry } from "../lib/tauri-bridge";
 import { isValidProfileUrl } from "../lib/validation";
 
 interface StepTargetProps {
@@ -7,7 +10,12 @@ interface StepTargetProps {
 }
 
 export default function StepTarget({ profileUrl, onProfileUrlChange, onNext }: StepTargetProps) {
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const valid = profileUrl.length > 0 && isValidProfileUrl(profileUrl);
+
+  useEffect(() => {
+    listDownloadHistory().then(setHistory).catch(() => {});
+  }, []);
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && valid) onNext();
@@ -43,6 +51,25 @@ export default function StepTarget({ profileUrl, onProfileUrlChange, onNext }: S
       <p className="form-hint" style={{ marginTop: 12 }}>
         示例：https://www.weibo.com/u/2166767661 或直接输入 UID 数字
       </p>
+
+      {history.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <p className="step-hint step-hint--inline">最近下载</p>
+          <div className="history-list">
+            {history.map((entry) => (
+              <button
+                key={entry.uid}
+                className="history-item"
+                onClick={() => onProfileUrlChange(`https://weibo.com/u/${entry.uid}`)}
+                type="button"
+              >
+                <span className="history-name">{entry.screen_name}</span>
+                <span className="history-meta">{entry.post_count} 条 · {entry.last_download.split("T")[0]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

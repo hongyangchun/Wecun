@@ -8,6 +8,8 @@
     "dialog:default",
     "fs:default",
     "http:default",
-    "opener:default"
+    "opener:default",
+    "process:default",
+    "updater:default"
   ]
 }

@@ -276,6 +276,11 @@ input:focus:not(:focus-visible) {
   padding: 0 24px 12px;
 }
 
+.step-hint--inline {
+  text-align: left;
+  padding: 0;
+}
+
 /* ── Footer ── */
 
 .step-footer {
@@ -476,6 +481,43 @@ input[type="date"]::-webkit-datetime-edit-year-field:focus {
   color: var(--color-text-tertiary);
   margin-top: 6px;
   line-height: 1.5;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text);
+  transition: all 120ms ease;
+  width: 100%;
+  text-align: left;
+}
+
+.history-item:hover {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-border);
+}
+
+.history-name {
+  font-weight: 500;
+}
+
+.history-meta {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
 }
 
 /* ── Segmented Control ── */
