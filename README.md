@@ -10,15 +10,16 @@
 - 🖼️ 可选是否包含图片
 - 📅 支持全部微博或指定时间段
 - 📄 导出为 Markdown 或 HTML 格式
-- 🪟 支持 Windows 和 macOS
+- 🪟 支持 Windows、macOS（Apple Silicon & Intel）和 Linux
 
 ## 快速开始
 
 ### 下载
 
 前往 [Releases](../../releases) 页面下载对应平台的安装包：
-- **macOS**: `.dmg` 文件
+- **macOS** (Apple Silicon & Intel): `.dmg` 文件
 - **Windows**: `.exe` 安装包
+- **Linux**: `.deb` 或 `.AppImage` 文件
 
 ### 使用说明
 
@@ -39,6 +40,7 @@
 - Rust 1.70+
 - macOS: Xcode Command Line Tools
 - Windows: Visual Studio Build Tools
+- Linux: `libwebkit2gtk-4.1-dev`、`libgtk-3-dev`、`libappindicator3-dev`、`librsvg2-dev`、`patchelf`
 
 ### 构建步骤
 
