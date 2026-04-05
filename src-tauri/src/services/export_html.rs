@@ -277,4 +277,56 @@ header h1 {
         break-inside: avoid;
     }
 }
+
+@media (prefers-color-scheme: dark) {
+    body {
+        background: #1a1a1a;
+        color: #e5e5ea;
+    }
+
+    header h1 {
+        color: #f5f5f7;
+    }
+
+    .subtitle {
+        color: #98989d;
+    }
+
+    .post {
+        background: #2a2a2a;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .post-author {
+        color: #f5f5f7;
+    }
+
+    .post-date {
+        color: #98989d;
+    }
+
+    .post-region {
+        color: #98989d;
+    }
+
+    .post-content {
+        color: #e5e5ea;
+    }
+
+    .post-content a {
+        color: #7aa2f7;
+    }
+
+    .post-meta {
+        border-top-color: #3a3a3a;
+    }
+
+    .post-meta a {
+        color: #7aa2f7;
+    }
+
+    .post-tags {
+        color: #98989d;
+    }
+}
 "#;
