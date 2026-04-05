@@ -3,6 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { DownloadRequest, ExportRequest, ProgressEvent } from "../types/contracts";
 
+export interface HistoryEntry {
+  uid: string;
+  screen_name: string;
+  output_dir: string;
+  last_download: string;
+  post_count: number;
+}
+
 export async function startDownload(request: DownloadRequest): Promise<string> {
   return await invoke<string>("start_download", { request });
 }
@@ -33,6 +41,14 @@ export async function loadSavedCookie(): Promise<string> {
 
 export async function clearSavedCookie(): Promise<void> {
   await invoke("clear_saved_cookie_cmd");
+}
+
+export async function listDownloadHistory(): Promise<HistoryEntry[]> {
+  return await invoke<HistoryEntry[]>("list_download_history");
+}
+
+export async function deleteHistoryEntry(uid: string): Promise<void> {
+  await invoke("delete_history_entry", { uid });
 }
 
 export function onProgress(callback: (event: ProgressEvent) => void) {

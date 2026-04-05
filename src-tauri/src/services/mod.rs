@@ -3,6 +3,7 @@ pub mod downloader;
 pub mod export_html;
 pub mod export_markdown;
 pub mod file_naming;
+pub mod history;
 pub mod image_store;
 pub mod weibo_api;
 

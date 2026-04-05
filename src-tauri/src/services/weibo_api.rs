@@ -1,15 +1,17 @@
 use std::fs;
+use std::future::Future;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use reqwest::StatusCode;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_stronghold::stronghold::Stronghold;
 use tokio::sync::Mutex;
 
 use crate::error::AppError;
 use crate::models::{
-    RawHistoryMap, RawLongText, RawPost, RawSearchProfile, RawUserInfo, UserProfile, WeiboImage,
-    WeiboPost,
+    ProgressEvent, ProgressPhase, RawHistoryMap, RawLongText, RawPost, RawSearchProfile,
+    RawUserInfo, UserProfile, WeiboImage, WeiboPost,
 };
 use crate::state::AppState;
 
@@ -21,6 +23,23 @@ const STRONGHOLD_FILE_NAME: &str = "cookie_vault.tauri";
 const STRONGHOLD_PASSWORD: &str = "weibo-downloader-vault-key";
 const STRONGHOLD_CLIENT_NAME: &[u8] = b"weibo-cookie-client";
 const COOKIE_STORE_KEY: &[u8] = b"weibo-session-cookie";
+
+#[derive(Debug, Clone)]
+struct RetryConfig {
+    max_retries: u32,
+    initial_delay: Duration,
+    max_delay: Duration,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay: Duration::from_secs(2),
+            max_delay: Duration::from_secs(30),
+        }
+    }
+}
 
 pub struct WeiboApiClient<R: Runtime> {
     app: AppHandle<R>,
@@ -71,16 +90,14 @@ impl<R: Runtime> WeiboApiClient<R> {
             url.push_str(&params.join("&"));
         }
 
-        let resp = client
-            .get(&url)
-            .header("Cookie", &cookie)
-            .header("Referer", "https://weibo.com/")
-            .send()
-            .await
-            .map_err(|e| AppError::ApiError(format!("网络请求失败: {e}")))?;
-
-        let status = resp.status();
-        let text = resp.text().await.map_err(AppError::Network)?;
+        let (status, text) = self
+            .request_with_retry(path, progress_phase_for_path(path), || {
+                let client = client.clone();
+                let url = url.clone();
+                let cookie = cookie.clone();
+                async move { self.send_request(client, url, cookie).await }
+            })
+            .await?;
 
         if is_auth_invalid_response(status, &text) {
             state.set_cookie(String::new());
@@ -98,6 +115,104 @@ impl<R: Runtime> WeiboApiClient<R> {
 
         serde_json::from_str(&text)
             .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", &text[..text.len().min(300)])))
+    }
+
+    async fn request_with_retry<F, Fut>(
+        &self,
+        path: &str,
+        phase: ProgressPhase,
+        request_fn: F,
+    ) -> Result<(StatusCode, String), AppError>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<(StatusCode, String), AppError>>,
+    {
+        let retry_config = RetryConfig::default();
+        let mut attempt = 0;
+
+        loop {
+            match request_fn().await {
+                Ok((status, text)) => {
+                    if is_auth_invalid_response(status, &text) || !is_retryable_status(status) {
+                        return Ok((status, text));
+                    }
+
+                    attempt += 1;
+                    if attempt > retry_config.max_retries {
+                        return Ok((status, text));
+                    }
+
+                    self.emit_retry_progress(
+                        phase.clone(),
+                        attempt,
+                        retry_config.max_retries,
+                        &format!(
+                            "请求 {path} 失败({status}: {})，正在重试({}/{})...",
+                            text.chars().take(50).collect::<String>(),
+                            attempt,
+                            retry_config.max_retries
+                        ),
+                    );
+
+                    tokio::time::sleep(retry_delay(&retry_config, attempt)).await;
+                }
+                Err(error) => {
+                    if !is_network_error(&error) {
+                        return Err(error);
+                    }
+
+                    attempt += 1;
+                    if attempt > retry_config.max_retries {
+                        return Err(error);
+                    }
+
+                    self.emit_retry_progress(
+                        phase.clone(),
+                        attempt,
+                        retry_config.max_retries,
+                        &format!(
+                            "请求 {path} 网络异常，正在重试({}/{})...",
+                            attempt,
+                            retry_config.max_retries
+                        ),
+                    );
+
+                    tokio::time::sleep(retry_delay(&retry_config, attempt)).await;
+                }
+            }
+        }
+    }
+
+    async fn send_request(
+        &self,
+        client: reqwest::Client,
+        url: String,
+        cookie: String,
+    ) -> Result<(StatusCode, String), AppError> {
+        let resp = client
+            .get(&url)
+            .header("Cookie", cookie)
+            .header("Referer", "https://weibo.com/")
+            .send()
+            .await
+            .map_err(AppError::Network)?;
+
+        let status = resp.status();
+        let text = resp.text().await.map_err(AppError::Network)?;
+        Ok((status, text))
+    }
+
+    fn emit_retry_progress(
+        &self,
+        phase: ProgressPhase,
+        current: u32,
+        total: u32,
+        message: &str,
+    ) {
+        let _ = self.app.emit(
+            "download-progress",
+            ProgressEvent::new(phase, current as usize, total as usize, message),
+        );
     }
 
     pub async fn get_user_info(&self, uid: &str) -> Result<UserProfile, AppError> {
@@ -323,6 +438,33 @@ fn extract_hashtags_from_text(text: &str) -> Vec<String> {
     result
 }
 
+fn progress_phase_for_path(path: &str) -> ProgressPhase {
+    match path {
+        "/ajax/profile/info" => ProgressPhase::FetchingUserInfo,
+        "/ajax/statuses/longtext" => ProgressPhase::FetchingLongText,
+        "/ajax/profile/mbloghistory" | "/ajax/statuses/searchProfile" => {
+            ProgressPhase::FetchingPostList
+        }
+        _ => ProgressPhase::FetchingPostList,
+    }
+}
+
+fn is_retryable_status(status: StatusCode) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+fn is_network_error(error: &AppError) -> bool {
+    matches!(error, AppError::Network(_))
+}
+
+fn retry_delay(config: &RetryConfig, attempt: u32) -> Duration {
+    let multiplier = 2u32.saturating_pow(attempt.saturating_sub(1));
+    config
+        .initial_delay
+        .saturating_mul(multiplier)
+        .min(config.max_delay)
+}
+
 fn cookie_dir<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     app.path()
         .app_data_dir()
@@ -483,6 +625,46 @@ pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
         }
     }
     let _ = fs::remove_file(cookie_file_path(app));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_retryable_status, retry_delay, RetryConfig};
+    use std::time::Duration;
+
+    #[test]
+    fn retry_config_defaults_match_expected_backoff() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.initial_delay, Duration::from_secs(2));
+        assert_eq!(config.max_delay, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn retries_only_transient_http_statuses() {
+        assert!(is_retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
+        assert!(is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
+        assert!(is_retryable_status(reqwest::StatusCode::SERVICE_UNAVAILABLE));
+        assert!(!is_retryable_status(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(!is_retryable_status(reqwest::StatusCode::FORBIDDEN));
+        assert!(!is_retryable_status(reqwest::StatusCode::BAD_REQUEST));
+    }
+
+    #[test]
+    fn retry_delay_uses_exponential_backoff_with_cap() {
+        let config = RetryConfig::default();
+        assert_eq!(retry_delay(&config, 1), Duration::from_secs(2));
+        assert_eq!(retry_delay(&config, 2), Duration::from_secs(4));
+        assert_eq!(retry_delay(&config, 3), Duration::from_secs(8));
+
+        let capped = RetryConfig {
+            max_retries: 5,
+            initial_delay: Duration::from_secs(20),
+            max_delay: Duration::from_secs(30),
+        };
+        assert_eq!(retry_delay(&capped, 2), Duration::from_secs(30));
+        assert_eq!(retry_delay(&capped, 5), Duration::from_secs(30));
+    }
 }
 
 pub async fn open_login_window(app: AppHandle) -> Result<(), String> {

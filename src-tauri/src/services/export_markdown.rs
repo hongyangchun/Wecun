@@ -5,6 +5,7 @@ use tokio::fs;
 use crate::error::AppError;
 use crate::models::{ExportContext, WeiboPost};
 use crate::services::file_naming::{markdown_export_filename, obsidian_post_filename};
+use crate::utils::html::html_to_markdown_rich;
 
 pub struct MarkdownExportService;
 
@@ -121,7 +122,7 @@ fn single_export_filename(posts: &[WeiboPost], export_context: &ExportContext) -
 }
 
 fn html_to_markdown(html: &str) -> String {
-    crate::utils::html::strip_html_tags(&convert_links(html))
+    html_to_markdown_rich(&convert_links(html))
 }
 
 fn extract_title_hint(post: &WeiboPost) -> String {

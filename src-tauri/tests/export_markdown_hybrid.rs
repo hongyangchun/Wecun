@@ -35,6 +35,21 @@ fn linked_post() -> WeiboPost {
     }
 }
 
+fn rich_html_post() -> WeiboPost {
+    WeiboPost {
+        mblogid: "Orich123".to_string(),
+        created_at: "Tue Jan 16 08:30:00 +0800 2024".to_string(),
+        text: r#"<p><strong>加粗</strong> 和 <em>斜体</em><br>下一行</p><blockquote><p>引用 <a href="https://weibo.com/rich">链接</a></p></blockquote><ul><li>第一项</li><li>第二项</li></ul><p><img src="https://example.com/inline.jpg" alt="内联图片"></p>"#.to_string(),
+        images: vec![],
+        is_repost: false,
+        repost_user: None,
+        region: None,
+        source_url: "https://weibo.com/123/Orich123".to_string(),
+        author: "测试用户".to_string(),
+        tags: vec![],
+    }
+}
+
 fn single_export_path(dir: &std::path::Path) -> std::path::PathBuf {
     dir.join(markdown_export_filename("2024-01-01至2024-01-31", "测试用户"))
 }
@@ -57,6 +72,30 @@ async fn markdown_export_preserves_link_targets() {
 
     let rendered = std::fs::read_to_string(single_export_path(&dir)).unwrap();
     assert!(rendered.contains("[查看原文](https://weibo.com/example)"));
+}
+
+#[tokio::test]
+async fn markdown_export_preserves_rich_html_formatting() {
+    let dir = temp_dir("rich-formatting");
+    let svc = MarkdownExportService::new();
+    let posts = vec![rich_html_post()];
+
+    svc.export_single(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let rendered = std::fs::read_to_string(single_export_path(&dir)).unwrap();
+    assert!(rendered.contains("**加粗** 和 *斜体*\n下一行"));
+    assert!(rendered.contains("> 引用 [链接](https://weibo.com/rich)"));
+    assert!(rendered.contains("- 第一项"));
+    assert!(rendered.contains("- 第二项"));
+    assert!(rendered.contains("![内联图片](https://example.com/inline.jpg)"));
 }
 
 #[tokio::test]

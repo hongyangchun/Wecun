@@ -7,6 +7,7 @@ use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent,
 use crate::services::downloader::DownloadService;
 use crate::services::export_html::HtmlExportService;
 use crate::services::export_markdown::MarkdownExportService;
+use crate::services::history::{HistoryEntry, HistoryService};
 use crate::services::weibo_api::{
     clear_saved_cookie, load_saved_cookie, open_login_window as weibo_open_login, restore_saved_cookie,
 };
@@ -38,8 +39,22 @@ pub async fn start_download(
 
     let service = DownloadService::new();
     match service.run(&request, &state, &app).await {
-        Ok(()) => {
+        Ok(user) => {
             let count = state.posts_exported.load(Ordering::Relaxed);
+            let history_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"));
+            let _ = HistoryService::new().save(
+                &history_dir,
+                HistoryEntry {
+                    uid: user.uid,
+                    screen_name: user.screen_name,
+                    output_dir: request.output_dir.clone(),
+                    last_download: chrono::Utc::now().to_rfc3339(),
+                    post_count: count,
+                },
+            );
             let _ = app.emit(
                 "download-progress",
                 ProgressEvent::new(
@@ -54,6 +69,26 @@ pub async fn start_download(
         Err(AppError::Cancelled) => Err("已取消下载".to_string()),
         Err(e) => Err(format!("下载失败: {e}")),
     }
+}
+
+#[tauri::command]
+pub fn list_download_history(app: tauri::AppHandle) -> Vec<HistoryEntry> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"));
+    HistoryService::list(&dir)
+}
+
+#[tauri::command]
+pub fn delete_history_entry(app: tauri::AppHandle, uid: String) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"));
+    HistoryService::new()
+        .delete(&dir, &uid)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

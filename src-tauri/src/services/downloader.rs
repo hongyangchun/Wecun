@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 use crate::error::AppError;
 use crate::models::{
     CheckpointMeta, DownloadRequest, ExportContext, PostFilter, ProgressEvent, ProgressPhase,
-    RawPost, WeiboPost,
+    RawPost, UserProfile, WeiboPost,
 };
 use crate::services::{
     file_naming::{dedupe_filenames, post_filename},
@@ -53,7 +53,7 @@ impl DownloadService {
         request: &DownloadRequest,
         state: &AppState,
         app: &AppHandle<R>,
-    ) -> Result<(), AppError> {
+    ) -> Result<UserProfile, AppError> {
         state.reset();
 
         let result = self.run_inner(request, state, app).await;
@@ -78,7 +78,7 @@ impl DownloadService {
         request: &DownloadRequest,
         state: &AppState,
         app: &AppHandle<R>,
-    ) -> Result<(), AppError> {
+    ) -> Result<UserProfile, AppError> {
         self.emit(app, ProgressPhase::FetchingUserInfo, 0, 1, "正在获取用户信息...");
 
         let client = WeiboApiClient::new(app.clone());
@@ -297,7 +297,7 @@ impl DownloadService {
         )
         .await?;
 
-        Ok(())
+        Ok(user)
     }
 
     async fn download_images<R: Runtime>(
