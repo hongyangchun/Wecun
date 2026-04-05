@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useRef, useEffect, useCallback, type Dispatch, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useRef, useEffect, type Dispatch, type ReactNode } from "react";
 import {
   wizardReducer,
   INITIAL_STATE,
@@ -11,7 +11,6 @@ import {
   onLoginInvalid,
   hasSavedCookie,
   loadSavedCookie,
-  clearSavedCookie,
 } from "../lib/tauri-bridge";
 
 interface WizardContextValue {
@@ -104,15 +103,9 @@ export function WizardProvider({ children }: WizardProviderProps) {
     }
   }, [state.postFilter, state.includeImages, state.dateMode, state.minTextLength]);
 
-  const handleLogout = useCallback(async () => {
-    if (!window.confirm("确定要退出登录吗？")) return;
-    await clearSavedCookie();
-    dispatch({ type: "LOGOUT" });
-  }, []);
-
   return (
     <WizardContext.Provider value={{ state, dispatch }}>
-      {typeof children === "function" ? (children as (props: { onLogout: () => void }) => ReactNode)({ onLogout: handleLogout }) : children}
+      {children}
     </WizardContext.Provider>
   );
 }

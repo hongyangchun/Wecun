@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_stronghold::stronghold::Stronghold;
+use tokio::sync::Mutex;
 
 use crate::error::AppError;
 use crate::models::{
@@ -14,8 +15,12 @@ use crate::state::AppState;
 
 const LOGIN_WINDOW_LABEL: &str = "weibo-login";
 const WEIBO_BASE: &str = "https://weibo.com";
-const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1000);
+const COOKIE_FILE_NAME: &str = "weibo_cookie.dat";
+const STRONGHOLD_FILE_NAME: &str = "cookie_vault.tauri";
+const STRONGHOLD_PASSWORD: &str = "weibo-downloader-vault-key";
+const STRONGHOLD_CLIENT_NAME: &[u8] = b"weibo-cookie-client";
+const COOKIE_STORE_KEY: &[u8] = b"weibo-session-cookie";
 
 pub struct WeiboApiClient<R: Runtime> {
     app: AppHandle<R>,
@@ -30,12 +35,12 @@ impl<R: Runtime> WeiboApiClient<R> {
         }
     }
 
-    fn throttle(&self) {
-        let mut guard = self.last_fetch.lock().unwrap();
+    async fn throttle(&self) {
+        let mut guard = self.last_fetch.lock().await;
         if let Some(last) = *guard {
             let elapsed = last.elapsed();
             if elapsed < MIN_REQUEST_INTERVAL {
-                std::thread::sleep(MIN_REQUEST_INTERVAL - elapsed);
+                tokio::time::sleep(MIN_REQUEST_INTERVAL - elapsed).await;
             }
         }
         *guard = Some(Instant::now());
@@ -46,7 +51,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<T, AppError> {
-        self.throttle();
+        self.throttle().await;
 
         let state = self.app.state::<AppState>();
         let cookie = state.get_cookie();
@@ -54,11 +59,7 @@ impl<R: Runtime> WeiboApiClient<R> {
             return Err(AppError::ApiError("请先登录".to_string()));
         }
 
-        let client = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|e| AppError::ApiError(format!("创建 HTTP 客户端失败: {e}")))?;
+        let client = state.http_client.clone();
 
         let mut url = format!("{WEIBO_BASE}{path}");
         if !query.is_empty() {
@@ -329,16 +330,95 @@ fn cookie_dir<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
 }
 
 fn cookie_file_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
-    cookie_dir(app).join("weibo_cookie.dat")
+    cookie_dir(app).join(COOKIE_FILE_NAME)
+}
+
+fn stronghold_cookie_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    cookie_dir(app).join(STRONGHOLD_FILE_NAME)
+}
+
+pub(crate) fn stronghold_password_hash(password: &str) -> Vec<u8> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut output = Vec::with_capacity(32);
+    for index in 0..4u64 {
+        let mut hasher = DefaultHasher::new();
+        password.hash(&mut hasher);
+        index.hash(&mut hasher);
+        output.extend_from_slice(&hasher.finish().to_le_bytes());
+    }
+    output
+}
+
+fn stronghold_key() -> Vec<u8> {
+    stronghold_password_hash(STRONGHOLD_PASSWORD)
+}
+
+fn open_stronghold_for_read<R: Runtime>(app: &AppHandle<R>) -> Option<Stronghold> {
+    Stronghold::new(stronghold_cookie_path(app), stronghold_key()).ok()
+}
+
+fn open_stronghold_for_write<R: Runtime>(app: &AppHandle<R>) -> Option<Stronghold> {
+    let path = stronghold_cookie_path(app);
+    let parent = path.parent()?;
+    fs::create_dir_all(parent).ok()?;
+
+    match Stronghold::new(&path, stronghold_key()) {
+        Ok(stronghold) => Some(stronghold),
+        Err(_) => {
+            let _ = fs::remove_file(&path);
+            Stronghold::new(path, stronghold_key()).ok()
+        }
+    }
+}
+
+fn load_cookie_from_stronghold<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let stronghold = open_stronghold_for_read(app)?;
+    let client = stronghold.load_client(STRONGHOLD_CLIENT_NAME).ok()?;
+    let value = client.store().get(COOKIE_STORE_KEY).ok().flatten()?;
+    String::from_utf8(value).ok().map(|cookie| cookie.trim().to_string())
+}
+
+fn load_legacy_plaintext_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let path = cookie_file_path(app);
+    if !path.exists() {
+        return None;
+    }
+
+    fs::read_to_string(path)
+        .ok()
+        .map(|cookie| cookie.trim().to_string())
+}
+
+fn persist_cookie_to_stronghold<R: Runtime>(app: &AppHandle<R>, cookie: &str) -> bool {
+    let Some(stronghold) = open_stronghold_for_write(app) else {
+        return false;
+    };
+
+    let client = stronghold
+        .load_client(STRONGHOLD_CLIENT_NAME)
+        .or_else(|_| stronghold.create_client(STRONGHOLD_CLIENT_NAME));
+
+    let Ok(client) = client else {
+        return false;
+    };
+
+    if client
+        .store()
+        .insert(COOKIE_STORE_KEY.to_vec(), cookie.as_bytes().to_vec(), None)
+        .is_err()
+    {
+        return false;
+    }
+
+    stronghold.save().is_ok()
 }
 
 pub fn load_saved_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    let path = cookie_file_path(app);
-    if path.exists() {
-        fs::read_to_string(&path).ok()
-    } else {
-        None
-    }
+    load_cookie_from_stronghold(app)
+        .filter(|cookie| !cookie.is_empty())
+        .or_else(|| load_legacy_plaintext_cookie(app).filter(|cookie| !cookie.is_empty()))
 }
 
 pub fn apply_saved_cookie_to_state(state: &AppState, cookie: Option<String>) -> Option<String> {
@@ -360,7 +440,22 @@ pub fn apply_saved_cookie_to_state(state: &AppState, cookie: Option<String>) -> 
 }
 
 pub fn restore_saved_cookie<R: Runtime>(app: &AppHandle<R>, state: &AppState) -> Option<String> {
-    apply_saved_cookie_to_state(state, load_saved_cookie(app))
+    let restored = load_cookie_from_stronghold(app)
+        .filter(|cookie| !cookie.is_empty())
+        .or_else(|| {
+            let legacy_cookie = load_legacy_plaintext_cookie(app)?;
+            if legacy_cookie.is_empty() {
+                return None;
+            }
+
+            if persist_cookie_to_stronghold(app, &legacy_cookie) {
+                let _ = fs::remove_file(cookie_file_path(app));
+            }
+
+            Some(legacy_cookie)
+        });
+
+    apply_saved_cookie_to_state(state, restored)
 }
 
 pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool {
@@ -375,12 +470,18 @@ pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool
 }
 
 pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
-    let dir = cookie_dir(app);
-    let _ = fs::create_dir_all(&dir);
-    let _ = fs::write(cookie_file_path(app), cookie);
+    if persist_cookie_to_stronghold(app, cookie) {
+        let _ = fs::remove_file(cookie_file_path(app));
+    }
 }
 
 pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(stronghold) = open_stronghold_for_write(app) {
+        if let Ok(client) = stronghold.load_client(STRONGHOLD_CLIENT_NAME) {
+            let _ = client.store().delete(COOKIE_STORE_KEY);
+            let _ = stronghold.save();
+        }
+    }
     let _ = fs::remove_file(cookie_file_path(app));
 }
 

@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::{collections::HashMap, path::Path};
+use std::{collections::{HashMap, HashSet}, path::Path};
 
 use chrono::{TimeZone, Utc};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::models::{
-    DownloadRequest, ExportContext, PostFilter, ProgressEvent, ProgressPhase, RawPost, WeiboPost,
+    CheckpointMeta, DownloadRequest, ExportContext, PostFilter, ProgressEvent, ProgressPhase,
+    RawPost, WeiboPost,
 };
 use crate::services::{
     file_naming::{dedupe_filenames, post_filename},
@@ -83,6 +84,34 @@ impl DownloadService {
         let client = WeiboApiClient::new(app.clone());
         let user = client.get_user_info(&request.uid).await?;
 
+        let mut resumed_posts: Vec<WeiboPost> = Vec::new();
+        let mut resumed_total_fetched = 0_usize;
+        let start_page = match crate::services::cache::load_cache_bundle_sync(&request.output_dir) {
+            Ok(bundle) if bundle.checkpoint.as_ref().is_some_and(|c| c.uid == request.uid) => {
+                let cp = bundle.checkpoint.expect("checkpoint should exist");
+                resumed_posts = bundle.posts;
+                resumed_total_fetched = cp.total_fetched;
+                state.posts_fetched.store(cp.total_fetched, Ordering::Relaxed);
+                state.posts_exported
+                    .store(resumed_posts.len(), Ordering::Relaxed);
+                state.total_posts.store(cp.total_posts.max(0) as usize, Ordering::Relaxed);
+                state.current_page.store(cp.last_page, Ordering::Relaxed);
+                self.emit(
+                    app,
+                    ProgressPhase::Resuming,
+                    0,
+                    cp.total_fetched,
+                    &format!(
+                        "从第 {} 页恢复下载（已有 {} 条）...",
+                        cp.last_page + 1,
+                        resumed_posts.len()
+                    ),
+                );
+                cp.last_page + 1
+            }
+            _ => 1,
+        };
+
         self.emit(
             app,
             ProgressPhase::FetchingUserInfo,
@@ -98,9 +127,11 @@ impl DownloadService {
         let starttime = request.date_range.start_timestamp;
         let endtime = request.date_range.end_timestamp;
 
-        let mut all_raw_posts = Vec::new();
+        let existing_ids: HashSet<String> = resumed_posts.iter().map(|p| p.mblogid.clone()).collect();
+        let mut all_raw_posts: Vec<RawPost> = Vec::new();
         let mut total_posts = 0_i64;
-        let mut page = 1_i64;
+        let mut page = start_page as i64;
+        let mut last_fetched_page = start_page.saturating_sub(1);
 
         loop {
             self.ensure_not_cancelled(state, app)?;
@@ -126,18 +157,24 @@ impl DownloadService {
                 break;
             }
 
-            all_raw_posts.extend(posts);
+            let new_posts: Vec<RawPost> = posts
+                .into_iter()
+                .filter(|post| !existing_ids.contains(&post.mblogid))
+                .collect();
+
+            all_raw_posts.extend(new_posts);
+            last_fetched_page = page as usize;
             state
                 .posts_fetched
-                .store(all_raw_posts.len(), Ordering::Relaxed);
+                .store(resumed_total_fetched + all_raw_posts.len(), Ordering::Relaxed);
             state.current_page.store(page as usize, Ordering::Relaxed);
 
             self.emit(
                 app,
                 ProgressPhase::FetchingPostList,
-                all_raw_posts.len(),
-                total_posts.max(all_raw_posts.len() as i64) as usize,
-                &format!("已获取 {} 条微博...", all_raw_posts.len()),
+                resumed_total_fetched + all_raw_posts.len(),
+                total_posts.max((resumed_total_fetched + all_raw_posts.len()) as i64) as usize,
+                &format!("已获取 {} 条微博...", resumed_total_fetched + all_raw_posts.len()),
             );
 
             page += 1;
@@ -151,7 +188,15 @@ impl DownloadService {
             "正在获取长文内容...",
         );
 
-        let mut normalized_posts = Vec::with_capacity(all_raw_posts.len());
+        let export_context = ExportContext {
+            date_range_label: format_date_range_label(
+                request.date_range.start_timestamp,
+                request.date_range.end_timestamp,
+            ),
+        };
+
+        let mut normalized_posts = resumed_posts.clone();
+        normalized_posts.reserve(all_raw_posts.len());
         for (index, raw) in all_raw_posts.iter().enumerate() {
             self.ensure_not_cancelled(state, app)?;
 
@@ -199,6 +244,21 @@ impl DownloadService {
 
             state.posts_exported.store(normalized_posts.len(), Ordering::Relaxed);
 
+            if normalized_posts.len() % 10 == 0 {
+                let _ = crate::services::cache::save_cache_checkpoint(
+                    &normalized_posts,
+                    &request.output_dir,
+                    CheckpointMeta {
+                        uid: request.uid.clone(),
+                        last_page: last_fetched_page,
+                        total_fetched: resumed_total_fetched + all_raw_posts.len(),
+                        total_posts,
+                    },
+                    &export_context,
+                )
+                .await;
+            }
+
             self.emit(app, ProgressPhase::FetchingLongText, 0, 1, "正在处理长文内容...");
             self.emit(
                 app,
@@ -209,6 +269,22 @@ impl DownloadService {
             );
         }
 
+        let _ = crate::services::cache::save_cache_checkpoint(
+            &normalized_posts,
+            &request.output_dir,
+            CheckpointMeta {
+                uid: request.uid.clone(),
+                last_page: last_fetched_page,
+                total_fetched: resumed_total_fetched + all_raw_posts.len(),
+                total_posts,
+            },
+            &export_context,
+        )
+        .await;
+        let mut seen = HashSet::new();
+        normalized_posts.retain(|p| seen.insert(p.mblogid.clone()));
+        state.posts_exported.store(normalized_posts.len(), Ordering::Relaxed);
+
         if request.include_images {
             self.download_images(request, &mut normalized_posts, state, app)
                 .await?;
@@ -217,22 +293,10 @@ impl DownloadService {
         crate::services::cache::save_cache_bundle(
             &normalized_posts,
             &request.output_dir,
-            ExportContext {
-                date_range_label: format_date_range_label(
-                    request.date_range.start_timestamp,
-                    request.date_range.end_timestamp,
-                ),
-            },
+            export_context,
         )
         .await?;
 
-        self.emit(
-            app,
-            ProgressPhase::Complete,
-            normalized_posts.len(),
-            normalized_posts.len(),
-            &format!("下载完成！共 {} 条微博", normalized_posts.len()),
-        );
         Ok(())
     }
 
@@ -255,6 +319,7 @@ impl DownloadService {
         }
 
         let image_store = ImageStoreService::new();
+        let client = &state.http_client;
         let mut downloaded = 0_usize;
 
         for post in posts.iter_mut() {
@@ -275,7 +340,7 @@ impl DownloadService {
                 .map(|(image, filename)| (image.original_url.clone(), filename.clone()))
                 .collect();
 
-            let stored_paths = match image_store.download_images(&urls, &image_dir).await {
+            let stored_paths = match image_store.download_images(client, &urls, &image_dir).await {
                 Ok(paths) => paths,
                 Err(error) => {
                     eprintln!("Failed to download images for post {}: {}", post.mblogid, error);

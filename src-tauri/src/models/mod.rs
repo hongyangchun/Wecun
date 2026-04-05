@@ -3,7 +3,7 @@ pub mod progress;
 pub mod request;
 pub mod weibo;
 
-pub use cache::{CachedPosts, ExportContext};
+pub use cache::{CachedPosts, CheckpointMeta, ExportContext};
 pub use progress::{ProgressEvent, ProgressPhase};
 pub use request::{DateRange, DownloadRequest, ExportFormat, ExportRequest, PostFilter};
 pub use weibo::{

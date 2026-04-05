@@ -11,16 +11,11 @@ impl ImageStoreService {
 
     pub async fn download_image(
         &self,
+        client: &reqwest::Client,
         url: &str,
         target_dir: &Path,
         filename: &str,
     ) -> Result<String, AppError> {
-        let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(AppError::Network)?;
-
         let resp = client
             .get(url)
             .header("Referer", "https://weibo.com/")
@@ -47,12 +42,13 @@ impl ImageStoreService {
 
     pub async fn download_images(
         &self,
+        client: &reqwest::Client,
         urls: &[(String, String)],
         target_dir: &Path,
     ) -> Result<Vec<(String, String)>, AppError> {
         let mut results = Vec::new();
         for (url, filename) in urls {
-            match self.download_image(url, target_dir, filename).await {
+            match self.download_image(client, url, target_dir, filename).await {
                 Ok(local) => results.push((url.clone(), local)),
                 Err(e) => {
                     eprintln!("Failed to download {}: {}", url, e);

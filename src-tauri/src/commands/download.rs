@@ -38,7 +38,19 @@ pub async fn start_download(
 
     let service = DownloadService::new();
     match service.run(&request, &state, &app).await {
-        Ok(()) => Ok(format!("下载完成！共 {} 条微博", state.posts_exported.load(Ordering::Relaxed))),
+        Ok(()) => {
+            let count = state.posts_exported.load(Ordering::Relaxed);
+            let _ = app.emit(
+                "download-progress",
+                ProgressEvent::new(
+                    ProgressPhase::Complete,
+                    count,
+                    count,
+                    &format!("下载完成！共 {} 条微博", count),
+                ),
+            );
+            Ok(format!("下载完成！共 {} 条微博", count))
+        }
         Err(AppError::Cancelled) => Err("已取消下载".to_string()),
         Err(e) => Err(format!("下载失败: {e}")),
     }

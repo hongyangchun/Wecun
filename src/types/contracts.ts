@@ -28,7 +28,8 @@ export type ProgressPhase =
   | "Exporting"
   | "Complete"
   | "Error"
-  | "Cancelled";
+  | "Cancelled"
+  | "Resuming";
 
 export interface ProgressEvent {
   phase: ProgressPhase;

@@ -9,7 +9,7 @@
 - 📝 支持仅原创或全部微博
 - 🖼️ 可选是否包含图片
 - 📅 支持全部微博或指定时间段
-- 📄 导出为 PDF、Markdown 或 HTML 格式
+- 📄 导出为 Markdown 或 HTML 格式
 - 🪟 支持 Windows 和 macOS
 
 ## 快速开始
@@ -27,7 +27,7 @@
 3. 输入目标博主主页地址，例如 `https://www.weibo.com/u/2166767661`
 4. 选择下载选项（原创/全部、时间范围、是否含图片）
 5. 选择保存目录并开始下载
-6. 下载完成后选择导出格式（PDF / Markdown / HTML）并导出
+6. 下载完成后选择导出格式（Markdown / HTML）并导出
 
 > ⚠️ 如果登录失效，应用会提示重新登录。
 
@@ -59,7 +59,6 @@ npm run tauri build
 
 | 格式 | 说明 |
 |------|------|
-| PDF（单文件） | 所有微博合并在一个PDF文件中 |
 | Markdown（单文件） | 所有微博合并在一个 `.md` 文件中 |
 | Markdown（每条微博一个文件） | 每条微博一个 `.md` 文件，存放在 `posts/` 子目录中 |
 | HTML（单文件） | 所有微博合并在一个 `.html` 文件中，可直接在浏览器中查看 |
@@ -93,7 +92,6 @@ cargo test
 - [ ] Markdown 单文件导出成功
 - [ ] Markdown 每条微博单独导出成功
 - [ ] Markdown 每条微博导出包含 `posts/index.md`
-- [ ] PDF 导出成功
 - [ ] HTML 导出成功且可在浏览器中正常显示
 - [ ] 下载缓存正确写入，重复导出无需重新下载
 - [ ] 勾选图片下载时 `images/` 目录生成成功
@@ -106,7 +104,6 @@ cargo test
 - **前端**: React + TypeScript + Vite
 - **后端**: Rust (Tauri 2)
 - **HTTP**: reqwest
-- **PDF**: genpdf
 - **打包**: Tauri Bundler
 
 ## 微博 API

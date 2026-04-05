@@ -16,7 +16,17 @@ impl Default for ExportContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointMeta {
+    pub uid: String,
+    pub last_page: usize,
+    pub total_fetched: usize,
+    pub total_posts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedPosts {
     pub export_context: ExportContext,
     pub posts: Vec<WeiboPost>,
+    #[serde(default)]
+    pub checkpoint: Option<CheckpointMeta>,
 }

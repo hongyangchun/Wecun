@@ -10,6 +10,7 @@ pub enum ProgressPhase {
     Complete,
     Error,
     Cancelled,
+    Resuming,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

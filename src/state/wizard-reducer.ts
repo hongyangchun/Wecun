@@ -82,6 +82,7 @@ const PHASE_TEXT: Record<ProgressPhase, string> = {
   Complete: "下载完成",
   Error: "出错了",
   Cancelled: "已取消",
+  Resuming: "正在恢复下载",
 };
 
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
