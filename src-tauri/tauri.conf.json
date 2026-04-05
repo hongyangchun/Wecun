@@ -38,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGQkQxNDBDQTFBRTgzQjEKUldTeGc2NmhEQlM5TDlhVHIvYjl1SDFYdy8rS0FaZTlTUGdMV09Lb1ZGZnBIN0I2Qmkva241VmcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGQkQxNDBDQTFBRTgzQjEKUldSaTlMOStiK0luRWFMUlBxUTNvUGdxMkNTRkxyVUNScW4xUklEemVIWVZuUXR1dmhtUWRSclYK",
       "endpoints": [
         "https://github.com/tauri-apps/tauri/releases/latest/download/latest.json"
       ]
