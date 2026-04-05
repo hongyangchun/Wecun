@@ -25,16 +25,19 @@ pub fn dedupe_filenames(names: &[String]) -> Vec<String> {
     let mut result = Vec::with_capacity(names.len());
 
     for name in names {
+        let (base, ext) = match name.rfind('.') {
+            Some(dot_pos) => (&name[..dot_pos], &name[dot_pos..]),
+            None => (name.as_str(), ""),
+        };
+
         let mut candidate = name.clone();
         let mut counter = 1;
         while seen.contains(&candidate) {
-            if let Some(dot_pos) = candidate.rfind('.') {
-                let base = &name[..dot_pos];
-                let ext = &name[dot_pos..];
-                candidate = format!("{base}_{counter}{ext}");
+            candidate = if ext.is_empty() {
+                format!("{name}_{counter}")
             } else {
-                candidate = format!("{name}_{counter}");
-            }
+                format!("{base}_{counter}{ext}")
+            };
             counter += 1;
         }
         seen.insert(candidate.clone());
@@ -69,9 +72,18 @@ pub fn parse_date_prefix(created_at: &str) -> String {
     }
 
     let months = [
-        ("Jan", "01"), ("Feb", "02"), ("Mar", "03"), ("Apr", "04"),
-        ("May", "05"), ("Jun", "06"), ("Jul", "07"), ("Aug", "08"),
-        ("Sep", "09"), ("Oct", "10"), ("Nov", "11"), ("Dec", "12"),
+        ("Jan", "01"),
+        ("Feb", "02"),
+        ("Mar", "03"),
+        ("Apr", "04"),
+        ("May", "05"),
+        ("Jun", "06"),
+        ("Jul", "07"),
+        ("Aug", "08"),
+        ("Sep", "09"),
+        ("Oct", "10"),
+        ("Nov", "11"),
+        ("Dec", "12"),
     ];
 
     let parts: Vec<&str> = created_at.split_whitespace().collect();
