@@ -21,7 +21,7 @@ import { buildDownloadRequest, extractUidFromUrl, isValidProfileUrl } from "./li
 import type { ExportFormat } from "./types/contracts";
 import "./App.css";
 
-const STEPS = ["登录", "目标", "选项", "导出"];
+const STEPS = ["登录", "目标", "选项", "保存"];
 
 type UpdateToastStatus = "hidden" | "available" | "downloading" | "installing" | "error";
 
@@ -227,16 +227,7 @@ function AppShell() {
         }));
 
         dispatch({ type: "ADD_LOG", message: result });
-        dispatch({ type: "EXPORT_START" });
-        dispatch({ type: "ADD_LOG", message: `正在导出 ${formatLabel(state.exportFormat)}...` });
-
-        const exportResult = await exportPosts({
-          output_dir: state.outputDir,
-          export_format: state.exportFormat,
-        });
-
-        dispatch({ type: "ADD_LOG", message: exportResult });
-        dispatch({ type: "PROCESS_COMPLETE" });
+        dispatch({ type: "DOWNLOAD_COMPLETE" });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("已取消")) {
@@ -249,6 +240,27 @@ function AppShell() {
       dispatch({ type: "NEXT_STEP" });
     }
   }, [state, dispatch, canGoNext]);
+
+  const handleExport = useCallback(async (format: ExportFormat) => {
+    dispatch({ type: "EXPORT_START" });
+    dispatch({ type: "ADD_LOG", message: `正在导出 ${formatLabel(format)}...` });
+
+    try {
+      const exportResult = await exportPosts({
+        output_dir: state.outputDir,
+        export_format: format,
+      });
+      dispatch({ type: "ADD_LOG", message: exportResult });
+      dispatch({ type: "PROCESS_COMPLETE" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      dispatch({ type: "PROCESS_ERROR", message: msg });
+    }
+  }, [state.outputDir, dispatch]);
+
+  const handleContinueExport = useCallback(() => {
+    dispatch({ type: "DOWNLOAD_COMPLETE" });
+  }, [dispatch]);
 
   const handleBack = useCallback(() => {
     dispatch({ type: "PREV_STEP" });
@@ -399,7 +411,7 @@ function AppShell() {
               </span>
               {confirmLogout ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>确认退出？</span>
+                  <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>确认退出账号？</span>
                   <button
                     className="logout-btn"
                     style={{ color: "var(--color-danger)" }}
@@ -411,7 +423,7 @@ function AppShell() {
                     }}
                     type="button"
                   >
-                    退出
+                    退出账号
                   </button>
                   <button
                     className="logout-btn"
@@ -427,7 +439,7 @@ function AppShell() {
                   onClick={() => setConfirmLogout(true)}
                   type="button"
                 >
-                  退出
+                  退出账号
                 </button>
               )}
             </div>
@@ -468,8 +480,6 @@ function AppShell() {
           )}
           {state.step === 3 && (
             <StepExportSettings
-              exportFormat={state.exportFormat}
-              onExportFormatChange={(f) => dispatch({ type: "SET_EXPORT_FORMAT", format: f })}
               outputDir={state.outputDir}
               onDirChange={(dir) => dispatch({ type: "SET_OUTPUT_DIR", dir })}
             />
@@ -529,6 +539,8 @@ function AppShell() {
             logs={state.logs}
             onStop={handleStop}
             onReset={handleReset}
+            onExport={handleExport}
+            onContinueExport={handleContinueExport}
             onOpenOutputDir={handleOpenOutputDir}
           />
         )}

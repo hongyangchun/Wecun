@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LogPanel, ProgressRing } from "./ui";
 import { DONATION_CONFIG } from "../lib/app-config";
 import type { ProcessStatus } from "../state/wizard-reducer";
+import type { ExportFormat } from "../types/contracts";
 
 interface StepProcessingProps {
   processStatus: Exclude<ProcessStatus, "idle">;
@@ -13,6 +14,8 @@ interface StepProcessingProps {
   logs: string[];
   onStop: () => void;
   onReset: () => void;
+  onExport: (format: ExportFormat) => void;
+  onContinueExport: () => void;
   onOpenOutputDir: () => void;
 }
 
@@ -33,9 +36,17 @@ export default function StepProcessing({
   logs,
   onStop,
   onReset,
+  onExport,
+  onContinueExport,
   onOpenOutputDir,
 }: StepProcessingProps) {
   const [showDonation, setShowDonation] = useState(false);
+
+  const exportActions: Array<{ format: ExportFormat; label: string; desc: string }> = [
+    { format: "html", label: "HTML", desc: "适合直接在浏览器中查看和分享" },
+    { format: "md-single", label: "Markdown（单文件）", desc: "适合整理成一份完整备份" },
+    { format: "md-multi", label: "Markdown（分文件）", desc: "每条微博一个独立文件，适合进一步整理" },
+  ];
 
   const renderLog = () =>
     logs.length > 0 ? <LogPanel logs={logs} /> : null;
@@ -104,6 +115,72 @@ export default function StepProcessing({
           </div>
         )}
 
+        {processStatus === "downloaded" && (
+          <div className="step-enter">
+            <div className="processing-header">
+              <span className="processing-icon processing-icon--success">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path className="animate-check-draw" d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <h2 className="processing-title">下载完成！</h2>
+            </div>
+
+            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>
+              微博已下载完成，可选择格式导出
+            </p>
+
+            {total > 0 && (
+              <div style={{
+                padding: "12px 16px",
+                borderRadius: "var(--radius-md)",
+                background: "var(--color-bg-inset)",
+                marginBottom: 16,
+                border: "1px solid var(--color-border-subtle)"
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
+                  共处理 {total} 条微博
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+              {exportActions.map((action) => (
+                <button
+                  key={action.format}
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={() => onExport(action.format)}
+                  style={{
+                    width: "100%",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    textAlign: "left",
+                    padding: "14px 16px",
+                    height: "auto",
+                    display: "flex",
+                    gap: 16,
+                  }}
+                >
+                  <span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text)" }}>{action.label}</span>
+                    <span style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>{action.desc}</span>
+                  </span>
+                  <span style={{ fontSize: 14, color: "var(--color-text-tertiary)", flexShrink: 0 }}>导出</span>
+                </button>
+              ))}
+            </div>
+
+            {renderLog()}
+
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-secondary" style={{ width: "100%" }} onClick={onReset} type="button">
+                返回
+              </button>
+            </div>
+          </div>
+        )}
+
         {processStatus === "done" && (
           <div className="step-enter">
             <div className="processing-header">
@@ -112,11 +189,11 @@ export default function StepProcessing({
                   <path className="animate-check-draw" d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
-              <h2 className="processing-title">处理完成！</h2>
+              <h2 className="processing-title">导出完成！</h2>
             </div>
 
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>
-              微博已下载并导出完成
+              导出文件已生成，可继续导出其他格式
             </p>
 
             {total > 0 && (
@@ -135,13 +212,18 @@ export default function StepProcessing({
 
             {renderLog()}
 
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+              <button className="btn btn-secondary" style={{ width: "100%" }} onClick={onContinueExport} type="button">
+                继续导出其他格式
+              </button>
+              <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={onOpenOutputDir} type="button">
                 打开目录
               </button>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDonation(true)} type="button">
                 关闭
               </button>
+              </div>
             </div>
           </div>
         )}

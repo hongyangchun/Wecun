@@ -1,6 +1,6 @@
 import type { PostFilter, DateMode, ExportFormat, ProgressPhase } from "../types/contracts";
 
-export type ProcessStatus = "idle" | "downloading" | "exporting" | "done" | "cancelled" | "error";
+export type ProcessStatus = "idle" | "downloading" | "downloaded" | "exporting" | "done" | "cancelled" | "error";
 
 export interface WizardState {
   step: number;
@@ -66,6 +66,7 @@ export type WizardAction =
   | { type: "SET_OUTPUT_DIR"; dir: string }
   | { type: "START_PROCESSING" }
   | { type: "UPDATE_PROGRESS"; phase: ProgressPhase; current: number; total: number; message: string }
+  | { type: "DOWNLOAD_COMPLETE" }
   | { type: "EXPORT_START" }
   | { type: "PROCESS_COMPLETE" }
   | { type: "PROCESS_ERROR"; message: string }
@@ -79,7 +80,7 @@ const PHASE_TEXT: Record<ProgressPhase, string> = {
   FetchingLongText: "正在获取长文内容",
   DownloadingImages: "正在下载图片",
   Exporting: "正在导出文件",
-  Complete: "下载完成",
+  Complete: "导出完成",
   Error: "出错了",
   Cancelled: "已取消",
   Resuming: "正在恢复下载",
@@ -217,12 +218,20 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         logs: [...state.logs, "正在导出..."],
       };
 
+    case "DOWNLOAD_COMPLETE":
+      return {
+        ...state,
+        processStatus: "downloaded",
+        progress: 100,
+        phase: "下载完成",
+      };
+
     case "PROCESS_COMPLETE":
       return {
         ...state,
         processStatus: "done",
         progress: 100,
-        phase: "下载完成",
+        phase: "导出完成",
       };
 
     case "PROCESS_ERROR":

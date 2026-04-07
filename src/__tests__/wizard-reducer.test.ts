@@ -148,7 +148,7 @@ describe("wizardReducer", () => {
     );
 
     expect(next.progress).toBe(100);
-    expect(next.phase).toBe("下载完成");
+    expect(next.phase).toBe("导出完成");
     expect(next.current).toBe(8);
     expect(next.total).toBe(8);
     expect(next.logs).toEqual(["完成了"]);
@@ -185,12 +185,23 @@ describe("wizardReducer", () => {
     expect(next.logs).toEqual(["开始下载...", "正在导出..."]);
   });
 
+  it("handles DOWNLOAD_COMPLETE", () => {
+    const next = reduce(
+      { type: "DOWNLOAD_COMPLETE" },
+      { ...INITIAL_STATE, processStatus: "downloading", progress: 72, phase: "下载中" },
+    );
+
+    expect(next.processStatus).toBe("downloaded");
+    expect(next.progress).toBe(100);
+    expect(next.phase).toBe("下载完成");
+  });
+
   it("handles PROCESS_COMPLETE", () => {
     const next = reduce({ type: "PROCESS_COMPLETE" }, { ...INITIAL_STATE, processStatus: "exporting" });
 
     expect(next.processStatus).toBe("done");
     expect(next.progress).toBe(100);
-    expect(next.phase).toBe("下载完成");
+    expect(next.phase).toBe("导出完成");
   });
 
   it("handles PROCESS_ERROR", () => {
