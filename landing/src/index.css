@@ -1,1 +1,36 @@
 @import "tailwindcss";
+
+@theme {
+  --color-bg-base: oklch(0.14 0.005 250);
+  --color-bg-elevated: oklch(0.17 0.005 250);
+  --color-border: oklch(0.28 0.005 250);
+  --color-border-subtle: oklch(0.22 0.005 250);
+  --color-accent: oklch(0.72 0.15 185);
+  --color-accent-hover: oklch(0.78 0.14 185);
+  --color-text-main: oklch(0.93 0.005 250);
+  --color-text-muted: oklch(0.68 0.01 250);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg-base);
+    color: var(--color-text-main);
+    /* App's font stack */
+    font-family: "SF Pro Display", "PingFang SC", -apple-system, system-ui, sans-serif;
+  }
+}
+
+/* Premium utility classes */
+@layer components {
+  .glass-panel {
+    background: color-mix(in oklch, var(--color-bg-elevated) 60%, transparent);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border-subtle);
+  }
+
+  .glow-text {
+    background: linear-gradient(to right, #fff, var(--color-accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
