@@ -47,7 +47,7 @@ Add a source type toggle at the top of the target step:
 
 #### A.2: Wizard State
 
-Add `sourceType: "profile" | "favorites"` to the wizard state (in `state/wizard-context.ts`).
+Add `sourceType: "profile" | "favorites"` to the wizard state (in `state/wizard-context.tsx`).
 
 Default value: `"profile"` (existing behavior unchanged).
 
