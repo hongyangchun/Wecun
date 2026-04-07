@@ -1,0 +1,5 @@
+<svg width="1200" height="800" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100%" height="100%" fill="#f8fafc"/>
+  <rect x="100" y="100" width="1000" height="600" rx="20" fill="#6366f1" fill-opacity="0.1" stroke="#6366f1" stroke-width="2"/>
+  <text x="50%" y="50%" font-family="sans-serif" font-size="40" fill="#6366f1" text-anchor="middle">微光足迹 软件截图占位符</text>
+</svg>
