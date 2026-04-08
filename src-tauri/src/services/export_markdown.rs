@@ -52,17 +52,24 @@ impl MarkdownExportService {
     }
 
     pub async fn export_per_post(&self, posts: &[WeiboPost], output_dir: &Path) -> Result<(), AppError> {
-        let posts_dir = output_dir.join("posts");
-        fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
-        let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
+    let posts_dir = output_dir.join("posts");
+    fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
+    let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
 
-        for post in posts {
-            let content = self.format_post(post, true);
-            let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
-            let dest = posts_dir.join(&filename);
-            fs::write(&dest, content).await.map_err(AppError::Io)?;
-            index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
-        }
+    for post in posts {
+        let content = self.format_post_split(&post);
+        let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
+        let dest = posts_dir.join(&filename);
+        fs::write(&dest, content).await.map_err(AppError::Io)?;
+        index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
+    }
+
+    fs::write(posts_dir.join("index.md"), index)
+        .await
+        .map_err(AppError::Io)?;
+
+    Ok(())
+}
 
         fs::write(posts_dir.join("index.md"), index)
             .await
@@ -161,20 +168,14 @@ impl MarkdownExportService {
                 let img_ref = match img.local_path.as_deref() {
                     Some(path) => path.to_string(),
                     None => img.original_url.clone(),
-                };
-                md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
-            }
+                Some(path) => format!("images/{}", path),
+                None => img.original_url.clone(),
+            };
+            md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
         }
-
-        md
     }
-}
 
-fn export_author_name(posts: &[WeiboPost]) -> String {
-    posts.first()
-        .map(|post| post.author.clone())
-        .filter(|author| !author.trim().is_empty())
-        .unwrap_or_else(|| "微博用户".to_string())
+    md
 }
 
 fn single_export_filename(_posts: &[WeiboPost], export_context: &ExportContext) -> String {
