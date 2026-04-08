@@ -97,12 +97,19 @@ impl MarkdownExportService {
         if !post.images.is_empty() {
             md.push_str("### 图片\n\n");
             for (i, img) in post.images.iter().enumerate() {
-                let img_ref = match img.local_path.as_deref() {
-                    Some(path) if for_per_post_export => format!("../{path}"),
-                    Some(path) => path.to_string(),
-                    None => img.original_url.clone(),
-                };
-                md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
+                if for_per_post_export {
+                    let img_ref = match img.local_path.as_deref() {
+                        Some(path) => format!("![[../{}]]", path),
+                        None => format!("![[{}]]", img.original_url),
+                    };
+                    md.push_str(&format!("{}\n\n", img_ref));
+                } else {
+                    let img_ref = match img.local_path.as_deref() {
+                        Some(path) => path.to_string(),
+                        None => img.original_url.clone(),
+                    };
+                    md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
+                }
             }
         }
 
@@ -193,6 +200,9 @@ fn extract_title_hint(post: &WeiboPost) -> String {
 
 fn frontmatter(post: &WeiboPost) -> String {
     let mut result = String::from("---\n");
+    result.push_str(&format!("title: \"{}\"\n", yaml_escape(&extract_title_hint(post))));
+    result.push_str("aliases:\n");
+    result.push_str(&format!("  - \"{}\"\n", yaml_escape(&extract_title_hint(post))));
     result.push_str(&format!("author: \"{}\"\n", yaml_escape(&post.author)));
     result.push_str(&format!("created_at: \"{}\"\n", yaml_escape(&post.created_at)));
     result.push_str(&format!("source_url: \"{}\"\n", yaml_escape(&post.source_url)));
