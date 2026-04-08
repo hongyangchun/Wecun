@@ -234,6 +234,7 @@ function AppShell() {
           dateEnd: state.dateEnd,
           outputDir: state.outputDir,
           ignoreDeleted: state.ignoreDeleted,
+          minTextLength: state.minTextLength,
           sourceType: state.sourceType,
         }));
 
@@ -489,6 +490,8 @@ function AppShell() {
               onDateEndChange={(d) => dispatch({ type: "SET_DATE_END", date: d })}
               ignoreDeleted={state.ignoreDeleted}
               onIgnoreDeletedChange={(v) => dispatch({ type: "SET_IGNORE_DELETED", value: v })}
+              minTextLength={state.minTextLength}
+              onMinTextLengthChange={(v) => dispatch({ type: "SET_MIN_TEXT_LENGTH", value: v })}
               sourceType={state.sourceType}
             />
           )}

@@ -14,6 +14,7 @@ export interface WizardState {
   dateStart: string;
   dateEnd: string;
   ignoreDeleted: boolean;
+  minTextLength: number;
   exportFormat: ExportFormat;
   outputDir: string;
   processStatus: ProcessStatus;
@@ -38,6 +39,7 @@ export const INITIAL_STATE: WizardState = {
   dateStart: "",
   dateEnd: "",
   ignoreDeleted: true,
+  minTextLength: 20,
   exportFormat: "html",
   outputDir: "",
   processStatus: "idle",
@@ -64,6 +66,7 @@ export type WizardAction =
   | { type: "SET_DATE_START"; date: string }
   | { type: "SET_DATE_END"; date: string }
   | { type: "SET_IGNORE_DELETED"; value: boolean }
+  | { type: "SET_MIN_TEXT_LENGTH"; value: number }
   | { type: "SET_EXPORT_FORMAT"; format: ExportFormat }
   | { type: "SET_OUTPUT_DIR"; dir: string }
   | { type: "SET_SOURCE_TYPE"; sourceType: "profile" | "favorites" }
@@ -149,6 +152,9 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
 
     case "SET_IGNORE_DELETED":
       return { ...state, ignoreDeleted: action.value };
+
+    case "SET_MIN_TEXT_LENGTH":
+      return { ...state, minTextLength: action.value };
 
     case "SET_EXPORT_FORMAT":
       return { ...state, exportFormat: action.format };

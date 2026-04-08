@@ -100,6 +100,17 @@ impl<R: Runtime> WeiboApiClient<R> {
             .await?;
 
         if is_auth_invalid_response(status, &text) {
+            // Check if cookie was recently set (grace period to avoid race conditions during account switching)
+            let last_set = state.get_last_cookie_set_time();
+            let should_suppress_error = last_set
+                .and_then(|t| Some(t.elapsed() < Duration::from_secs(5)))
+                .unwrap_or(false);
+
+            if should_suppress_error {
+                // Cookie was just set, likely due to account switching. Return error but don't clear state.
+                return Err(AppError::ApiError("正在切换账号，请稍后重试".to_string()));
+            }
+
             state.set_cookie(String::new());
             clear_saved_cookie(&self.app);
             let _ = self.app.emit("login-invalid", "登录已失效，请重新登录");

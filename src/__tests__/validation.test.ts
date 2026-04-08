@@ -95,6 +95,7 @@ describe("validation utilities", () => {
           dateEnd: "2024-01-31",
           outputDir: "/tmp/weibo",
           ignoreDeleted: true,
+          minTextLength: 20,
           sourceType: "profile",
         }),
       ).toEqual({
@@ -108,6 +109,7 @@ describe("validation utilities", () => {
         },
         output_dir: "/tmp/weibo",
         ignore_deleted: true,
+        min_text_length: 20,
         source_type: "profile",
       });
     });
@@ -124,6 +126,7 @@ describe("validation utilities", () => {
           dateEnd: "2024-01-31",
           outputDir: "/tmp/weibo",
           ignoreDeleted: false,
+          minTextLength: 0,
           sourceType: "profile",
         }),
       ).toEqual({
@@ -137,6 +140,7 @@ describe("validation utilities", () => {
         },
         output_dir: "/tmp/weibo",
         ignore_deleted: false,
+        min_text_length: 0,
         source_type: "profile",
       });
     });

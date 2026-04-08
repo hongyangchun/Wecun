@@ -24,6 +24,29 @@ fn needs_long_text(raw: &RawPost) -> bool {
     raw.is_long_text == Some(true) || raw.text.contains("展开") || raw.text.contains("全文")
 }
 
+/// Count visible characters in text, excluding HTML tags
+/// This is used for the min_text_length filter
+fn count_visible_chars(html: &str) -> usize {
+    let mut in_tag = false;
+    let mut count = 0;
+
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => {
+                // Only count non-whitespace visible characters
+                if !c.is_whitespace() {
+                    count += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    count
+}
+
 fn parse_weibo_date_to_timestamp(created_at: &str) -> i64 {
     let created_at = created_at.trim();
     if created_at.is_empty() {
@@ -398,6 +421,15 @@ impl DownloadService {
             match request.filter {
                 PostFilter::Original if post.is_repost => continue,
                 PostFilter::Original | PostFilter::All => {}
+            }
+
+            // Filter by text length (only for profile mode, not favorites)
+            if matches!(request.source_type, SourceType::Profile) && request.min_text_length > 0 {
+                // Count visible characters (excluding HTML tags and URLs)
+                let text_len = count_visible_chars(&post.text);
+                if text_len < request.min_text_length {
+                    continue;
+                }
             }
 
             normalized_posts.push(post);

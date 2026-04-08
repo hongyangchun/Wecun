@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { SegmentedControl, FormField } from "./ui";
 import type { PostFilter, DateMode } from "../types/contracts";
 
@@ -16,7 +17,35 @@ interface StepOptionsProps {
   onDateEndChange: (d: string) => void;
   ignoreDeleted: boolean;
   onIgnoreDeletedChange: (v: boolean) => void;
+  minTextLength: number;
+  onMinTextLengthChange: (v: number) => void;
   sourceType?: "profile" | "favorites";
+}
+
+function MinLengthInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const [str, setStr] = useState(String(value));
+
+  useEffect(() => {
+    setStr(String(value));
+  }, [value]);
+
+  return (
+    <div className="flex items-center gap-10">
+      <input
+        type="number"
+        className="input"
+        style={{ width: 80, height: 36 }}
+        value={str}
+        onChange={(e) => setStr(e.target.value)}
+        onBlur={() => onChange(Math.max(0, Math.min(500, parseInt(str) || 0)))}
+        min={0}
+        max={500}
+      />
+      <span className="form-hint" style={{ margin: 0 }}>
+        字数少于该值的微博将被跳过（0 = 不过滤）
+      </span>
+    </div>
+  );
 }
 
 export default function StepOptions({
@@ -32,6 +61,8 @@ export default function StepOptions({
   onDateEndChange,
   ignoreDeleted,
   onIgnoreDeletedChange,
+  minTextLength,
+  onMinTextLengthChange,
   sourceType = "profile",
 }: StepOptionsProps) {
   return (
@@ -79,6 +110,14 @@ export default function StepOptions({
           </div>
         </label>
       </div>
+
+      {sourceType === "profile" && (
+        <div className="step-section">
+          <FormField label="忽略短微博" hint="推荐默认值 20">
+            <MinLengthInput value={minTextLength} onChange={onMinTextLengthChange} />
+          </FormField>
+        </div>
+      )}
 
       {sourceType === "profile" && (
         <div className="step-section">

@@ -13,6 +13,7 @@ export interface DownloadRequest {
   };
   output_dir: string;
   ignore_deleted: boolean;
+  min_text_length: number;
   source_type: "profile" | "favorites";
 }
 

@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -13,6 +13,7 @@ pub struct AppState {
     pub posts_exported: AtomicUsize,
     http_client: Mutex<reqwest::Client>,
     cookie: Mutex<String>,
+    last_cookie_set: Mutex<Option<Instant>>,
 }
 
 impl Default for AppState {
@@ -26,6 +27,7 @@ impl Default for AppState {
             posts_exported: AtomicUsize::new(0),
             http_client: Mutex::new(Self::create_client()),
             cookie: Mutex::new(String::new()),
+            last_cookie_set: Mutex::new(None),
         }
     }
 }
@@ -63,11 +65,19 @@ impl AppState {
     pub fn set_cookie(&self, cookie: String) {
         {
             let mut guard = self.cookie.lock().unwrap();
-            *guard = cookie;
+            *guard = cookie.clone();
+        }
+        // Note the timestamp when a new cookie is set (for grace period during account switching)
+        if !cookie.is_empty() {
+            *self.last_cookie_set.lock().unwrap() = Some(Instant::now());
         }
         // Force refresh the HTTP client to clear internal connection pool state/cookies
         let mut client_guard = self.http_client.lock().unwrap();
         *client_guard = Self::create_client();
+    }
+
+    pub fn get_last_cookie_set_time(&self) -> Option<Instant> {
+        *self.last_cookie_set.lock().unwrap()
     }
 
     pub fn get_cookie(&self) -> String {

@@ -41,6 +41,12 @@ pub struct DownloadRequest {
     pub date_range: DateRange,
     pub output_dir: String,
     pub ignore_deleted: bool,
+    #[serde(default = "default_min_text_length")]
+    pub min_text_length: usize,
+}
+
+fn default_min_text_length() -> usize {
+    20
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

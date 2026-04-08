@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use tokio::fs;
@@ -5,6 +6,24 @@ use tokio::fs;
 use crate::error::AppError;
 use crate::models::{ExportContext, WeiboPost};
 use crate::services::file_naming::sanitize_filename;
+
+// Pre-computed sets for ammonia configuration
+fn get_allowed_tags() -> HashSet<&'static str> {
+    HashSet::from([
+        "a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+        "hr", "i", "img", "li", "ol", "p", "pre", "span", "strong", "table", "tbody", "td",
+        "th", "thead", "tr", "ul",
+    ])
+}
+
+fn get_tag_attributes() -> HashMap<&'static str, HashSet<&'static str>> {
+    HashMap::from([
+        ("a", HashSet::from(["href", "title"])),
+        ("img", HashSet::from(["src", "alt", "title", "width", "height"])),
+        ("th", HashSet::from(["colspan", "rowspan"])),
+        ("td", HashSet::from(["colspan", "rowspan"])),
+    ])
+}
 
 pub struct HtmlExportService;
 
@@ -137,7 +156,17 @@ impl HtmlExportService {
 }
 
 fn sanitize_html_content(html: &str) -> String {
-    ammonia::clean(html)
+    use ammonia::Builder;
+
+    // Configure ammonia to preserve line breaks and formatting
+    let clean = Builder::default()
+        .tags(get_allowed_tags())
+        .tag_attributes(get_tag_attributes())
+        .link_rel(None)
+        .url_relative(ammonia::UrlRelative::PassThrough)
+        .clean(html);
+
+    clean.to_string()
 }
 
 fn html_escape(s: &str) -> String {
@@ -232,6 +261,19 @@ header h1 {
     word-wrap: break-word;
 }
 
+.post-content img {
+    max-width: 1.2em;
+    max-height: 1.2em;
+    vertical-align: middle;
+    display: inline;
+}
+
+.post-content br {
+    content: "";
+    display: block;
+    margin: 0.5em 0;
+}
+
 .post-content a {
     color: #4F6EF7;
     text-decoration: none;
@@ -322,6 +364,19 @@ header h1 {
 
     .post-content {
         color: #e5e5ea;
+    }
+
+    .post-content img {
+        max-width: 1.2em;
+        max-height: 1.2em;
+        vertical-align: middle;
+        display: inline;
+    }
+
+    .post-content br {
+        content: "";
+        display: block;
+        margin: 0.5em 0;
     }
 
     .post-content a {

@@ -68,6 +68,7 @@ export interface FormValues {
   dateEnd: string;
   outputDir: string;
   ignoreDeleted: boolean;
+  minTextLength: number;
   sourceType: "profile" | "favorites";
 }
 
@@ -83,6 +84,7 @@ export function buildDownloadRequest(values: FormValues): DownloadRequest {
     },
     output_dir: values.outputDir,
     ignore_deleted: values.ignoreDeleted,
+    min_text_length: values.minTextLength,
     source_type: values.sourceType,
   };
 }
