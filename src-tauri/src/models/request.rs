@@ -14,8 +14,10 @@ pub enum ExportFormat {
     Html,
     #[serde(rename = "md-single")]
     MarkdownSingle,
-    #[serde(rename = "md-multi")]
-    MarkdownPerPost,
+    #[serde(rename = "md-obsidian")]
+    MarkdownObsidian,
+    #[serde(rename = "md-split")]
+    MarkdownSplit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
