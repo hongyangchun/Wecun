@@ -158,13 +158,35 @@ impl HtmlExportService {
 fn sanitize_html_content(html: &str) -> String {
     use ammonia::Builder;
 
-    // Configure ammonia to preserve line breaks and formatting
+    // Pre-process: normalize br tags but preserve existing structure
+    let preprocessed = html
+        .replace("<br />", "<br>")
+        .replace("<br/>", "<br>")
+        // Convert consecutive br tags to paragraph breaks only for content without p tags
+        .replace("<br><br>", "</p><p>");
+
+    // Don't wrap content that already has block-level structure
+    let has_structure = preprocessed.contains("<p>") || preprocessed.contains("<div>")
+        || preprocessed.contains("<blockquote>") || preprocessed.contains("<ul")
+        || preprocessed.contains("<ol") || preprocessed.contains("<h");
+
+    let content_to_clean = if has_structure {
+        preprocessed
+    } else if preprocessed.contains("<br>") {
+        // Content with br tags but no structure - wrap in p and convert br
+        format!("<p>{}</p>", preprocessed.replace("<br>", "<br/>"))
+    } else {
+        // Plain text content - wrap in p
+        format!("<p>{}</p>", preprocessed)
+    };
+
+    // Configure ammonia to preserve structure
     let clean = Builder::default()
         .tags(get_allowed_tags())
         .tag_attributes(get_tag_attributes())
         .link_rel(None)
         .url_relative(ammonia::UrlRelative::PassThrough)
-        .clean(html);
+        .clean(&content_to_clean);
 
     clean.to_string()
 }
@@ -256,22 +278,61 @@ header h1 {
 
 .post-content {
     font-size: 16px;
-    line-height: 1.7;
+    line-height: 1.8;
     margin-bottom: 12px;
     word-wrap: break-word;
+    /* Preserve line breaks in text content */
+    white-space: pre-line;
 }
 
-.post-content img {
-    max-width: 1.2em;
-    max-height: 1.2em;
+/* Ensure all block-level elements have proper spacing */
+.post-content p,
+.post-content div,
+.post-content blockquote,
+.post-content ul,
+.post-content ol,
+.post-content h1,
+.post-content h2,
+.post-content h3,
+.post-content h4,
+.post-content h5,
+.post-content h6,
+.post-content pre {
+    margin-top: 0.8em;
+    margin-bottom: 0.8em;
+}
+
+/* First element shouldn't have top margin */
+.post-content > *:first-child {
+    margin-top: 0;
+}
+
+/* Last element shouldn't have bottom margin */
+.post-content > *:last-child {
+    margin-bottom: 0;
+}
+
+/* Small inline images (emojis) */
+.post-content img[width="20"],
+.post-content img[height="20"],
+.post-content img[width="21"],
+.post-content img[height="21"],
+.post-content img[width="22"],
+.post-content img[height="22"],
+.post-content img[width="23"],
+.post-content img[height="23"] {
+    max-width: 1.2em !important;
+    max-height: 1.2em !important;
+    vertical-align: middle !important;
+    display: inline !important;
+}
+
+/* For emoji images without explicit dimensions but small src URLs */
+.post-content img:not([src*="wx4.sinaimg"]):not([src*="large"]) {
+    max-width: 1.4em;
+    max-height: 1.4em;
     vertical-align: middle;
     display: inline;
-}
-
-.post-content br {
-    content: "";
-    display: block;
-    margin: 0.5em 0;
 }
 
 .post-content a {
@@ -366,17 +427,50 @@ header h1 {
         color: #e5e5ea;
     }
 
-    .post-content img {
-        max-width: 1.2em;
-        max-height: 1.2em;
-        vertical-align: middle;
-        display: inline;
+    /* Ensure all block-level elements have proper spacing in dark mode */
+    .post-content p,
+    .post-content div,
+    .post-content blockquote,
+    .post-content ul,
+    .post-content ol,
+    .post-content h1,
+    .post-content h2,
+    .post-content h3,
+    .post-content h4,
+    .post-content h5,
+    .post-content h6,
+    .post-content pre {
+        margin-top: 0.8em;
+        margin-bottom: 0.8em;
     }
 
-    .post-content br {
-        content: "";
-        display: block;
-        margin: 0.5em 0;
+    .post-content > *:first-child {
+        margin-top: 0;
+    }
+
+    .post-content > *:last-child {
+        margin-bottom: 0;
+    }
+
+    .post-content img[width="20"],
+    .post-content img[height="20"],
+    .post-content img[width="21"],
+    .post-content img[height="21"],
+    .post-content img[width="22"],
+    .post-content img[height="22"],
+    .post-content img[width="23"],
+    .post-content img[height="23"] {
+        max-width: 1.2em !important;
+        max-height: 1.2em !important;
+        vertical-align: middle !important;
+        display: inline !important;
+    }
+
+    .post-content img:not([src*="wx4.sinaimg"]):not([src*="large"]) {
+        max-width: 1.4em;
+        max-height: 1.4em;
+        vertical-align: middle;
+        display: inline;
     }
 
     .post-content a {

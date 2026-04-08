@@ -24,6 +24,17 @@ struct RenderState {
     list_stack: Vec<ListState>,
 }
 
+/// Check if an image URL is likely an emoji icon
+/// Weibo emoji images are typically from specific patterns
+fn is_emoji_image(src: &str) -> bool {
+    // Weibo emoji URLs typically contain specific patterns
+    src.contains("/emoji/")
+        || src.contains("face/")
+        || src.contains("expression")
+        || (src.contains("sinaimg.cn") && src.contains("small"))
+        || (src.contains("wx4.sinaimg.cn") && !src.contains("large"))
+}
+
 /// Strip HTML tags and decode common HTML entities from Weibo HTML content.
 pub fn strip_html_tags(html: &str) -> String {
     let html = html
@@ -56,9 +67,16 @@ pub fn strip_html_tags(html: &str) -> String {
 }
 
 pub fn html_to_markdown_rich(html: &str) -> String {
+    // Pre-process: Convert consecutive <br> tags to paragraph breaks
+    let preprocessed = html
+        .replace("<br />", "<br>")
+        .replace("<br/>", "<br>")
+        .replace("<br><br>", "</p><p>")
+        .replace("<br><br>", "</p><p>");
+
     let mut pos = 0;
     let mut state = RenderState::default();
-    let rendered = render_nodes(html, &mut pos, None, &mut state);
+    let rendered = render_nodes(&preprocessed, &mut pos, None, &mut state);
     normalize_markdown(&decode_html_entities(&rendered))
 }
 
@@ -156,11 +174,18 @@ fn render_nodes(
                         .map(decode_html_entities)
                         .unwrap_or_default();
                     if !src.is_empty() {
-                        let alt = tag
-                            .attr("alt")
-                            .map(decode_html_entities)
-                            .unwrap_or_default();
-                        output.push_str(&format!("![{alt}]({src})"));
+                        // Check if this is a small emoji image
+                        let is_emoji = is_emoji_image(&src);
+                        if is_emoji {
+                            // For emoji images, just skip them in Markdown
+                            // The emoji should already be in the text content
+                        } else {
+                            let alt = tag
+                                .attr("alt")
+                                .map(decode_html_entities)
+                                .unwrap_or_default();
+                            output.push_str(&format!("![{alt}]({src})"));
+                        }
                     }
                 }
                 "ul" => {

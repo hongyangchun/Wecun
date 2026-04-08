@@ -180,7 +180,7 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
             稍后
           </button>
           <button className="btn btn-primary" onClick={onInstall} type="button">
-            Download & Install
+            下载并安装
           </button>
         </div>
       )}
@@ -392,9 +392,9 @@ function AppShell() {
           errorMessage: "",
         });
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         if (cancelled) return;
-        console.warn("Failed to check for updates", err);
+        // Silently fail update check - not critical for app functionality
       });
 
     return () => {

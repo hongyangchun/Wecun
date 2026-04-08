@@ -78,7 +78,7 @@ impl MarkdownExportService {
         if for_per_post_export {
             md.push_str(&frontmatter(post));
         } else {
-            md.push_str(&format!("{} · [原文链接]({})\n\n", post.created_at, post.source_url));
+            md.push_str(&format!("**{}** · {} · [原文链接]({})\n\n", post.author, post.created_at, post.source_url));
         }
 
         md.push_str(&plain_text);
@@ -117,7 +117,7 @@ fn export_author_name(posts: &[WeiboPost]) -> String {
         .unwrap_or_else(|| "微博用户".to_string())
 }
 
-fn single_export_filename(posts: &[WeiboPost], export_context: &ExportContext) -> String {
+fn single_export_filename(_posts: &[WeiboPost], export_context: &ExportContext) -> String {
     markdown_export_filename(
         &export_context.type_label,
         &export_context.date_range_label,

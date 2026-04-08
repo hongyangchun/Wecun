@@ -13,7 +13,7 @@ export default function StepIndicator({ steps, currentStep }: StepIndicatorProps
         const labelClass = isDone ? "step-label--done" : isActive ? "step-label--active" : "step-label--pending";
 
         return (
-          <div key={label} className="flex items-center" {...(isActive ? { "aria-current": "step" } : {})}>
+          <div key={label} style={{ display: "flex", alignItems: "center" }} {...(isActive ? { "aria-current": "step" } : {})}>
             <div className="step-node">
               <span className={`step-dot ${dotClass}`}>
                 {isDone ? (

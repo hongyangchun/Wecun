@@ -102,7 +102,7 @@ export default function StepTarget({ profileUrl, onProfileUrlChange, onNext, sou
             示例：https://www.weibo.com/u/2166767661 或直接输入 UID 数字
           </p>
 
-          {history.length > 0 && (
+          {history.length > 0 ? (
             <div style={{ marginTop: 12 }}>
               <p className="step-hint step-hint--inline">最近下载</p>
               <div className="history-list">
@@ -117,6 +117,15 @@ export default function StepTarget({ profileUrl, onProfileUrlChange, onNext, sou
                     <span className="history-meta">{entry.post_count} 条 · {entry.last_download.split("T")[0]}</span>
                   </button>
                 ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <p className="step-hint step-hint--inline">最近下载</p>
+              <div style={{ padding: "12px 16px", borderRadius: "var(--radius-md)", background: "var(--color-bg-inset)", border: "1px dashed var(--color-border-subtle)" }}>
+                <p className="form-hint" style={{ margin: 0, color: "var(--color-text-tertiary)", textAlign: "center" }}>
+                  首次使用，暂无下载历史
+                </p>
               </div>
             </div>
           )}

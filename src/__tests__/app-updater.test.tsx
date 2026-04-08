@@ -66,7 +66,7 @@ describe("App updater flow", () => {
     render(<App />);
 
     expect(await screen.findByText("发现新版本 0.2.0")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Download & Install" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeTruthy();
     expect(screen.getByText("修复更新流程")).toBeTruthy();
   });
 
@@ -88,7 +88,7 @@ describe("App updater flow", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Download & Install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "下载并安装" }));
 
     await waitFor(() => {
       expect(downloadAndInstall).toHaveBeenCalledTimes(1);

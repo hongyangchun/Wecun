@@ -30,7 +30,7 @@ function MinLengthInput({ value, onChange }: { value: number; onChange: (n: numb
   }, [value]);
 
   return (
-    <div className="flex items-center gap-10">
+    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
       <input
         type="number"
         className="input"
@@ -94,8 +94,8 @@ export default function StepOptions({
               </div>
             )}
             {dateMode === "range" && (
-              <div className="flex flex-col gap-8" style={{ marginTop: 12 }}>
-                <div className="flex items-center gap-10">
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                   <input
                     type="date"
                     className="input"
