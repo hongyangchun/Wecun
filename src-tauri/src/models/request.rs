@@ -16,8 +16,8 @@ pub enum ExportFormat {
     MarkdownSingle,
     #[serde(rename = "md-obsidian")]
     MarkdownObsidian,
-    #[serde(rename = "md-split")]
-    MarkdownSplit,
+    #[serde(rename = "pdf")]
+    Pdf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

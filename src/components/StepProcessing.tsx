@@ -43,10 +43,10 @@ export default function StepProcessing({
   const [showDonation, setShowDonation] = useState(false);
 
   const exportActions: Array<{ format: ExportFormat; label: string; desc: string }> = [
-    { format: "html", label: "HTML", desc: "适合直接在浏览器中查看和分享" },
-    { format: "md-single", label: "Markdown（单文件）", desc: "适合整理成一份完整备份" },
-    { format: "md-obsidian", label: "Markdown（Obsidian兼容）", desc: "每条微博一个文件，带 YAML frontmatter，可直接导入 Obsidian" },
-    { format: "md-split", label: "Markdown（分文件）", desc: "每条微博一个独立文件，使用单文件格式的内容排版" },
+    { format: "html", label: "HTML", desc: "浏览器查看" },
+    { format: "md-single", label: "Markdown", desc: "单文件备份" },
+    { format: "md-obsidian", label: "Obsidian", desc: "带 frontmatter" },
+    { format: "pdf", label: "PDF", desc: "精美排版" },
   ];
 
   const isRiskWarning = logs.slice(-10).some((log) =>
@@ -160,7 +160,7 @@ export default function StepProcessing({
               </div>
             )}
 
-            <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
               {exportActions.map((action) => (
                 <button
                   key={action.format}
@@ -169,20 +169,17 @@ export default function StepProcessing({
                   onClick={() => onExport(action.format)}
                   style={{
                     width: "100%",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    textAlign: "left",
-                    padding: "14px 16px",
-                    height: "auto",
                     display: "flex",
-                    gap: 16,
+                    flexDirection: "column",
+                    alignItems: "center",
+                    textAlign: "center",
+                    padding: "12px 8px",
+                    height: "auto",
+                    gap: 4,
                   }}
                 >
-                  <span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text)" }}>{action.label}</span>
-                    <span style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>{action.desc}</span>
-                  </span>
-                  <span style={{ fontSize: 14, color: "var(--color-text-tertiary)", flexShrink: 0 }}>导出</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>{action.label}</span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>{action.desc}</span>
                 </button>
               ))}
             </div>

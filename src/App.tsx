@@ -50,7 +50,7 @@ function formatLabel(fmt: ExportFormat): string {
     html: "HTML",
     "md-single": "Markdown",
     "md-obsidian": "Markdown (Obsidian)",
-    "md-split": "Markdown（分文件）",
+    pdf: "PDF",
   };
   return labels[fmt];
 }

@@ -35,6 +35,9 @@ urlencoding = "2.1"
 thiserror = "2"
 futures = "0.3"
 ammonia = "3"
+typst = "0.14"
+typst-pdf = "0.14"
+typst-kit = { version = "0.14", features = ["embed-fonts", "fonts"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

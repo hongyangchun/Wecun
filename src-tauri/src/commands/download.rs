@@ -7,6 +7,7 @@ use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent,
 use crate::services::downloader::DownloadService;
 use crate::services::export_html::HtmlExportService;
 use crate::services::export_markdown::MarkdownExportService;
+use crate::services::export_pdf::PdfExportService;
 use crate::services::history::{HistoryEntry, HistoryService};
 use crate::services::weibo_api::{
     clear_saved_cookie, load_saved_cookie, open_login_window as weibo_open_login, restore_saved_cookie,
@@ -135,17 +136,14 @@ pub async fn export_posts(
             .export(&posts, &request.output_dir, &export_context, false)
             .await
             .map_err(|e| format!("导出Markdown(Obsidian)失败: {e}"))?,
-        ExportFormat::MarkdownSplit => {
-            let export_service = MarkdownExportService::new();
-            export_service
-                .export_split(&posts, std::path::Path::new(&request.output_dir))
-                .await
-                .map_err(|e| format!("导出Markdown(Split)失败: {e}"))?
-        }
         ExportFormat::Html => HtmlExportService::new()
             .export(&posts, &request.output_dir, &export_context)
             .await
             .map_err(|e| format!("导出HTML失败: {e}"))?,
+        ExportFormat::Pdf => PdfExportService::new()
+            .export(&posts, &request.output_dir, &export_context)
+            .await
+            .map_err(|e| format!("导出PDF失败: {e}"))?,
     }
 
     let _ = app.emit(
@@ -160,8 +158,8 @@ fn format_label(fmt: &ExportFormat) -> &'static str {
     match fmt {
         ExportFormat::MarkdownSingle => "Markdown",
         ExportFormat::MarkdownObsidian => "Markdown (Obsidian兼容)",
-        ExportFormat::MarkdownSplit => "Markdown (分文件)",
         ExportFormat::Html => "HTML",
+        ExportFormat::Pdf => "PDF",
     }
 }
 
