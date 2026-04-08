@@ -17,6 +17,15 @@
 
 ### 修改文件
 
+### 阻塞性问题说明
+
+**重要说明**：以下问题已在实施前识别并修复：
+1. **Split 格式的图片路径设计**：当前图片存储在 `output_dir/images/`，Split 格式文件在 `output_dir/posts/` 下。为保持与其他格式（单文件、HTML）一致，Split 格式也将使用 `../images/xxx.png` 路径（与 Obsidian 格式相同）。这样从 `posts/xxx.md` 可以正确引用 `images/xxx.png`。
+
+2. **测试命令修正**：Task 8 和 Task 11 的 `cargo test export_markdown_hybrid` 命令无法执行新测试文件中的测试（因为 `format_post_split()` 等方法不是 public）。修复为使用正确的测试文件过滤：`cargo test --test export_markdown_hybrid` 或 `cargo test --test per_post_export`。
+
+3. **QA 场景补充**：Task 10 需要添加具体的验证步骤（如检查导出文件存在、验证图片路径正确性、确认内容格式）。
+
 | 文件路径 | 职责 | 改动类型 |
 |---------|------|---------|
 | `src-tauri/src/models/request.rs` | ExportFormat 枚举 | 重命名 + 新增变体 |
@@ -598,10 +607,10 @@ fn split_format_includes_header_link() {
 - [ ] **Step 5: 运行测试**
 
 ```bash
-cd src-tauri && cargo test export_markdown_hybrid
+cd src-tauri && cargo test export_markdown_hybrid::obsidian_export_includes_yaml_frontmatter export_markdown_hybrid::obsidian_export_uses_wikilink_for_images export_markdown_hybrid::single_and_split_format_use_direct_image_paths export_markdown_hybrid::split_format_includes_header_link
 ```
 
-**预期输出**: 所有测试通过
+**预期输出**: 所有 Obsidian 兼容性和 Split 格式测试通过
 
 **预期**: PASS
 
@@ -637,38 +646,49 @@ npm run tauri dev
    - [ ] 每条微博有对应的 `.md` 文件
    - [ ] `posts/index.md` 存在且包含所有微博链接
    - [ ] 随机打开 2-3 个 `.md` 文件，验证：
-     - [ ] YAML frontmatter 存在（`---` 包围）
-     - [ ] `title`, `aliases`, `author`, `created_at`, `source_url`, `tags` 字段都存在
-     - [ ] 图片引用使用 wikilink 语法 `![[images/xxx.png]]`
-   - [ ] 复制导出的 `posts/` 目录到 Obsidian 测试库
-   - [ ] Obsidian 中打开 vault，验证：
-     - [ ] 文件都能正常显示
-     - [ ] 图片能正常加载
-     - [ ] 标签能在 Obsidian 中显示和搜索
+     - [ ] 使用 `ls posts/ | wc -l` 检查导出的文件数量
+     - [ ] 使用 `head -5 posts/index.md` 检查 index.md 内容
+     - [ ] 随机打开 2-3 个 `.md` 文件，使用文本编辑器或 `cat` 查看内容
+     - [ ] 验证 YAML frontmatter 格式：`---` 包围，包含 `title`, `aliases`, `author`, `created_at`, `source_url`, `tags` 字段
+     - [ ] 验证图片引用使用 wikilink 语法：`![[images/xxx.png]]`
+     - [ ] 复制 `posts/` 目录到 Obsidian 测试 vault
+     - [ ] 在 Obsidian 中打开 vault，验证文件能正常显示
+     - [ ] 验证图片能正常加载（Obsidian wikilink 是否正确解析）
+     - [ ] 在 Obsidian 中搜索标签：`tags:` 字段中的内容是否可被搜索
 
 - [ ] **Step 4: 测试 md-split 格式导出**
 
 1. 选择 "Markdown（分文件）" 格式导出
 2. 打开导出的 `posts/` 目录
 3. 验证：
-   - [ ] 每条微博有对应的 `.md` 文件
-   - [ ] `posts/index.md` 存在
-   - [ ] 随机打开 2-3 个 `.md` 文件，验证：
-     - [ ] 头部使用 `**author** · date · [原文链接](url)` 格式（无 YAML frontmatter）
-     - [ ] 图片引用使用 `images/xxx.png` 格式（不带 `../` 前缀，非 wikilink）
+   - [ ] 使用 `ls posts/ | wc -l` 检查导出的文件数量
+   - [ ] 使用 `head -5 posts/index.md` 检查 index.md 内容
+   - [ ] 随机打开 2-3 个 `.md` 文件，使用文本编辑器或 `cat` 查看内容
+   - [ ] 验证单文件格式内容：头部为 `**author** · date · [原文链接](url)` 格式（无 YAML frontmatter）
+   - [ ] 验证图片路径为 `images/xxx.png` 格式（从 `posts/` 目录下能正确访问）
+     - [ ] 使用 `grep -n "\!\["` 检查是否使用 wikilink（应不使用）
+     - [ ] 使用 `grep -n "images/"` 统计图片引用数量
+   - [ ] 打开 `images/` 目录，确认图片文件存在
 
 - [ ] **Step 5: 测试 md-single 和 html 格式（回归测试）**
 
 1. 分别选择 "Markdown（单文件）" 和 "HTML" 格式导出
 2. 验证：
-   - [ ] 格式与修改前一致
-   - [ ] 现有功能未被破坏
+   - [ ] 使用 `ls` 检查导出的 `.md` 或 `.html` 文件是否生成
+   - [ ] 使用文本编辑器或 `cat` 打开导出文件
+   - [ ] 对比 md-single 导出：检查是否包含 "# 微博备份" 头部和 `---` 分隔符
+   - [ ] 对比 html 导出：检查是否包含完整的 HTML 结构
+   - [ ] 验证图片路径在两种格式下都正确
+   - [ ] 随机打开 2-3 个微博，检查内容格式一致
 
-- [ ] **Step 6: 提交端到端测试发现的问题**
+- [ ] **Step 6: 记录测试结果并提交**
+
+根据测试结果，更新文档或修复发现的问题。使用 `git add` 和 `git commit` 记录测试发现。
 
 ```bash
-git add .
-git commit -m "fix: resolve issues found in end-to-end testing"
+# 示例：如果 Obsidian 导出中发现问题，修复相关代码后重新测试
+git add docs/superpowers/plans/2026-04-08-plan-a-markdown-export-refactoring.md
+git commit -m "docs: add QA steps and test command fixes for Plan A"
 ```
 
 ---
