@@ -102,13 +102,16 @@ impl<R: Runtime> WeiboApiClient<R> {
         if is_auth_invalid_response(status, &text) {
             // Check if cookie was recently set (grace period to avoid race conditions during account switching)
             let last_set = state.get_last_cookie_set_time();
-            let should_suppress_error = last_set
-                .and_then(|t| Some(t.elapsed() < Duration::from_secs(5)))
+            let elapsed = last_set.map(|t| t.elapsed());
+            let grace_period = Duration::from_secs(10);
+            let should_suppress_error = elapsed
+                .and_then(|e| Some(e < grace_period))
                 .unwrap_or(false);
 
             if should_suppress_error {
                 // Cookie was just set, likely due to account switching. Return error but don't clear state.
-                return Err(AppError::ApiError("正在切换账号，请稍后重试".to_string()));
+                let remaining = grace_period.saturating_sub(elapsed.unwrap_or_default());
+                return Err(AppError::ApiError(format!("正在切换账号，请等待 {:.0} 秒后重试", remaining.as_secs_f64())));
             }
 
             state.set_cookie(String::new());
@@ -639,13 +642,32 @@ pub fn restore_saved_cookie<R: Runtime>(app: &AppHandle<R>, state: &AppState) ->
 
 pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool {
     let body_lower = body.to_ascii_lowercase();
-    status == reqwest::StatusCode::UNAUTHORIZED
-        || status == reqwest::StatusCode::FORBIDDEN
-        || body_lower.contains("retcode=6102")
-        || body_lower.contains("passport.weibo.com")
-        || body_lower.contains("<!doctype html")
-            && body_lower.contains("window.wbbotdetector")
-            && body_lower.contains("weibo.com/favicon.ico")
+
+    // Check for HTTP status codes that indicate auth failure
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return true;
+    }
+
+    // Check for Weibo-specific error codes
+    if body_lower.contains("retcode=6102") {
+        return true;
+    }
+
+    // Check if the response is an HTML page (indicating a redirect to login page)
+    // This happens when the session cookie is invalid
+    if body_lower.contains("<!doctype html")
+        && body_lower.contains("window.wbbotdetector")
+        && body_lower.contains("weibo.com/favicon.ico") {
+        return true;
+    }
+
+    // Check for passport.weibo.com in the body, but be more specific
+    // Only trigger if it's clearly a login/redirect page, not just a reference
+    if body_lower.contains("passport.weibo.com") && body_lower.contains("<!doctype html") {
+        return true;
+    }
+
+    false
 }
 
 pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
@@ -700,6 +722,13 @@ mod tests {
 }
 
 pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
+    // Close any existing login window first to avoid conflicts when switching accounts
+    if let Some(existing_win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
+        let _ = existing_win.close();
+        // Give it a moment to close properly
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
     let app_clone = app.clone();
 
     let _ = WebviewWindowBuilder::new(

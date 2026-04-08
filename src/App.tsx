@@ -539,6 +539,7 @@ function AppShell() {
               <div className="step-hint">
                 {state.step === 0 && "请先登录微博账号"}
                 {state.step === 1 && state.sourceType === "profile" && "请输入有效的微博主页地址"}
+                {state.step === 2 && state.sourceType === "profile" && state.dateMode === "range" && "请选择开始和结束日期"}
                 {state.step === 3 && "请选择保存目录"}
               </div>
             )}
