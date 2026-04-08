@@ -108,6 +108,59 @@ impl MarkdownExportService {
 
         md
     }
+
+    pub async fn export_split(&self, posts: &[WeiboPost], output_dir: &Path) -> Result<(), AppError> {
+        let posts_dir = output_dir.join("posts");
+        fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
+        let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
+
+        for post in posts {
+            let content = self.format_post_split(post);
+            let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
+            let dest = posts_dir.join(&filename);
+            fs::write(&dest, content).await.map_err(AppError::Io)?;
+            index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
+        }
+
+        fs::write(posts_dir.join("index.md"), index)
+            .await
+            .map_err(AppError::Io)?;
+
+        Ok(())
+    }
+
+    fn format_post_split(&self, post: &WeiboPost) -> String {
+        let mut md = String::new();
+
+        let plain_text = html_to_markdown(&post.text);
+        md.push_str(&format!("**{}** · {} · [原文链接]({})\n\n", post.author, post.created_at, post.source_url));
+
+        md.push_str(&plain_text);
+        md.push_str("\n\n");
+
+        if let Some(region) = &post.region {
+            md.push_str(&format!("> {}\n\n", region));
+        }
+
+        if post.is_repost {
+            if let Some(repost_user) = &post.repost_user {
+                md.push_str(&format!("> 转发自 @{}\n\n", repost_user));
+            }
+        }
+
+        if !post.images.is_empty() {
+            md.push_str("### 图片\n\n");
+            for (i, img) in post.images.iter().enumerate() {
+                let img_ref = match img.local_path.as_deref() {
+                    Some(path) => path.to_string(),
+                    None => img.original_url.clone(),
+                };
+                md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
+            }
+        }
+
+        md
+    }
 }
 
 fn export_author_name(posts: &[WeiboPost]) -> String {
