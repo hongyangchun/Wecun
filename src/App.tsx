@@ -203,6 +203,7 @@ function AppShell() {
       return state.profileUrl.length > 0 && isValidProfileUrl(state.profileUrl);
     }
     if (state.step === 2) {
+      if (state.sourceType === "favorites") return true;
       if (state.dateMode === "range") {
         return !!state.dateStart && !!state.dateEnd;
       }
@@ -210,7 +211,7 @@ function AppShell() {
     }
     if (state.step === 3) return !!state.outputDir;
     return true;
-  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir, state.sourceType]);
+  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir, state.sourceType, state.dateMode, state.dateStart, state.dateEnd]);
 
   const handleNext = useCallback(async () => {
     if (state.step === 3) {

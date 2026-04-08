@@ -6,6 +6,7 @@ use super::WeiboPost;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportContext {
     pub date_range_label: String,
+    #[serde(default)]
     pub type_label: String,
 }
 
