@@ -3,10 +3,10 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::test::{mock_builder, mock_context, noop_assets};
 use tauri::Manager;
-use tauri_app_lib::services::weibo_api::{
+use wecun_lib::services::weibo_api::{
     clear_saved_cookie, load_saved_cookie, restore_saved_cookie, save_cookie,
 };
-use tauri_app_lib::state::AppState;
+use wecun_lib::state::AppState;
 
 const COOKIE_FILE_NAME: &str = "weibo_cookie.dat";
 const STRONGHOLD_FILE_NAME: &str = "cookie_vault.tauri";

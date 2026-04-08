@@ -1,6 +1,6 @@
 use reqwest::StatusCode;
-use tauri_app_lib::services::weibo_api::{apply_saved_cookie_to_state, is_auth_invalid_response};
-use tauri_app_lib::state::AppState;
+use wecun_lib::services::weibo_api::{apply_saved_cookie_to_state, is_auth_invalid_response};
+use wecun_lib::state::AppState;
 
 #[test]
 fn apply_saved_cookie_to_state_stores_non_empty_cookie() {

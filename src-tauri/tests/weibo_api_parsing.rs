@@ -1,9 +1,7 @@
 use std::fs;
 
-use tauri_app_lib::models::{
-    RawFavProfile, RawHistoryMap, RawLongText, RawSearchProfile, RawUserInfo,
-};
-use tauri_app_lib::services::weibo_api::WeiboApiClient;
+use wecun_lib::models::{RawFavProfile, RawHistoryMap, RawLongText, RawSearchProfile, RawUserInfo};
+use wecun_lib::services::weibo_api::WeiboApiClient;
 
 fn load_fixture(name: &str) -> String {
     let path = format!(
@@ -110,7 +108,7 @@ fn test_image_url_https_prefix() {
 
 #[test]
 fn test_parse_camelcase_is_long_text_field() {
-    let raw: tauri_app_lib::models::RawPost = serde_json::from_str(
+    let raw: wecun_lib::models::RawPost = serde_json::from_str(
         r#"{
             "mblogid": "Qdemo123",
             "created_at": "Thu Apr 02 09:30:36 +0800 2026",

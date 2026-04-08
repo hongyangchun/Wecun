@@ -3,12 +3,12 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::TimeZone;
-use tauri_app_lib::models::{DateRange, DownloadRequest, PostFilter, SourceType};
-use tauri_app_lib::services::downloader::DownloadService;
-use tauri_app_lib::services::export_markdown::MarkdownExportService;
-use tauri_app_lib::services::cache;
-use tauri_app_lib::services::markdown_export_filename;
-use tauri_app_lib::state::AppState;
+use wecun_lib::models::{DateRange, DownloadRequest, PostFilter, SourceType};
+use wecun_lib::services::downloader::DownloadService;
+use wecun_lib::services::export_markdown::MarkdownExportService;
+use wecun_lib::services::cache;
+use wecun_lib::services::markdown_export_filename;
+use wecun_lib::state::AppState;
 use tauri::Manager;
 use tauri::test::{mock_builder, mock_context, noop_assets};
 

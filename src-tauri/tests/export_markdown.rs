@@ -1,6 +1,6 @@
-use tauri_app_lib::models::{ExportContext, WeiboImage, WeiboPost};
-use tauri_app_lib::services::export_markdown::MarkdownExportService;
-use tauri_app_lib::services::markdown_export_filename;
+use wecun_lib::models::{ExportContext, WeiboImage, WeiboPost};
+use wecun_lib::services::export_markdown::MarkdownExportService;
+use wecun_lib::services::markdown_export_filename;
 
 fn sample_posts() -> Vec<WeiboPost> {
     vec![WeiboPost {

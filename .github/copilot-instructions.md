@@ -1,4 +1,4 @@
-# Copilot Instructions for Weibo Downloader
+# Copilot Instructions for Wecun
 
 ## Build, test, and run commands
 
