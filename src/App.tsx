@@ -198,18 +198,27 @@ function AppShell() {
 
   const canGoNext = useCallback(() => {
     if (state.step === 0) return state.isLoggedIn;
-    if (state.step === 1) return state.profileUrl.length > 0 && isValidProfileUrl(state.profileUrl);
+    if (state.step === 1) {
+      if (state.sourceType === "favorites") return true;
+      return state.profileUrl.length > 0 && isValidProfileUrl(state.profileUrl);
+    }
+    if (state.step === 2) {
+      if (state.dateMode === "range") {
+        return !!state.dateStart && !!state.dateEnd;
+      }
+      return true;
+    }
     if (state.step === 3) return !!state.outputDir;
     return true;
-  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir]);
+  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir, state.sourceType]);
 
   const handleNext = useCallback(async () => {
     if (state.step === 3) {
       dispatch({ type: "START_PROCESSING" });
 
       try {
-        const uid = extractUidFromUrl(state.profileUrl);
-        if (!uid) {
+        const uid = state.sourceType === "favorites" ? "" : extractUidFromUrl(state.profileUrl) || "";
+        if (state.sourceType === "profile" && !extractUidFromUrl(state.profileUrl)) {
           dispatch({ type: "PROCESS_ERROR", message: "无法从链接中提取用户ID" });
           return;
         }
@@ -223,7 +232,8 @@ function AppShell() {
           dateStart: state.dateStart,
           dateEnd: state.dateEnd,
           outputDir: state.outputDir,
-          minTextLength: state.minTextLength,
+          ignoreDeleted: state.ignoreDeleted,
+          sourceType: state.sourceType,
         }));
 
         dispatch({ type: "ADD_LOG", message: result });
@@ -402,7 +412,7 @@ function AppShell() {
       />
       <div className="app-window">
         <header className="app-header">
-          <h1 className="app-title">微博备份助手</h1>
+          <h1 className="app-title">微存 <span style={{ fontSize: "0.5em", opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>Wecun</span></h1>
           {state.isLoggedIn && (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span className="auth-badge">
@@ -460,6 +470,8 @@ function AppShell() {
               profileUrl={state.profileUrl}
               onProfileUrlChange={(url) => dispatch({ type: "SET_PROFILE_URL", url })}
               onNext={() => dispatch({ type: "NEXT_STEP" })}
+              sourceType={state.sourceType}
+              onSourceTypeChange={(type) => dispatch({ type: "SET_SOURCE_TYPE", sourceType: type })}
             />
           )}
           {state.step === 2 && (
@@ -474,8 +486,9 @@ function AppShell() {
               onDateStartChange={(d) => dispatch({ type: "SET_DATE_START", date: d })}
               dateEnd={state.dateEnd}
               onDateEndChange={(d) => dispatch({ type: "SET_DATE_END", date: d })}
-              minTextLength={state.minTextLength}
-              onMinTextLengthChange={(n) => dispatch({ type: "SET_MIN_TEXT_LENGTH", length: n })}
+              ignoreDeleted={state.ignoreDeleted}
+              onIgnoreDeletedChange={(v) => dispatch({ type: "SET_IGNORE_DELETED", value: v })}
+              sourceType={state.sourceType}
             />
           )}
           {state.step === 3 && (
@@ -521,7 +534,7 @@ function AppShell() {
             {!canGoNext() && (
               <div className="step-hint">
                 {state.step === 0 && "请先登录微博账号"}
-                {state.step === 1 && "请输入有效的微博主页地址"}
+                {state.step === 1 && state.sourceType === "profile" && "请输入有效的微博主页地址"}
                 {state.step === 3 && "请选择保存目录"}
               </div>
             )}

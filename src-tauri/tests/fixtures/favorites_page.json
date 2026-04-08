@@ -1,0 +1,53 @@
+{
+  "ok": 1,
+  "data": [
+    {
+      "mblogid": "Ofav001abc",
+      "created_at": "Wed Feb 12 14:20:00 +0800 2025",
+      "text": "<p>这是一条收藏的微博</p>",
+      "is_long_text": false,
+      "region_name": "发布于 广州",
+      "user": {
+        "id": 2166767661,
+        "screen_name": "被收藏的博主"
+      },
+      "pic_infos": {
+        "pic1": {
+          "large": {
+            "url": "https://wx2.sinaimg.cn/large/006PQ2BRgy1hm5fav001.jpg",
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "retweeted_status": null,
+      "page_info": null
+    },
+    {
+      "mblogid": "Ofav002def",
+      "created_at": "Thu Feb 13 09:15:00 +0800 2025",
+      "text": "<p>收藏了一条长微博</p>",
+      "is_long_text": true,
+      "region_name": "发布于 深圳",
+      "user": {
+        "id": 3166767662,
+        "screen_name": "另一位博主"
+      },
+      "pic_infos": null,
+      "retweeted_status": {
+        "mblogid": "Oorig999",
+        "created_at": "Wed Feb 12 08:00:00 +0800 2025",
+        "text": "<p>被转发的原微博</p>",
+        "is_long_text": false,
+        "user": {
+          "id": 4166767663,
+          "screen_name": "原作者"
+        },
+        "pic_infos": null,
+        "retweeted_status": null,
+        "page_info": null
+      },
+      "page_info": null
+    }
+  ]
+}

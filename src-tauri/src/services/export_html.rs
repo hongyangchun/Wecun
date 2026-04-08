@@ -3,7 +3,7 @@ use std::path::Path;
 use tokio::fs;
 
 use crate::error::AppError;
-use crate::models::WeiboPost;
+use crate::models::{ExportContext, WeiboPost};
 use crate::services::file_naming::sanitize_filename;
 
 pub struct HtmlExportService;
@@ -17,6 +17,7 @@ impl HtmlExportService {
         &self,
         posts: &[WeiboPost],
         output_dir: impl AsRef<Path>,
+        export_context: &ExportContext,
     ) -> Result<(), AppError> {
         let output_dir = output_dir.as_ref();
         fs::create_dir_all(output_dir).await.map_err(AppError::Io)?;
@@ -26,22 +27,32 @@ impl HtmlExportService {
             .map(|p| p.author.as_str())
             .unwrap_or("微博用户");
 
-        let html = self.render(posts, author_name);
-        let filename = format!("{}-微博导出.html", sanitize_filename(author_name));
+        let html = self.render(posts, author_name, export_context);
+        let filename = format!(
+            "{}-{}.html",
+            sanitize_filename(&export_context.type_label),
+            sanitize_filename(&export_context.date_range_label)
+        );
         let dest = output_dir.join(filename);
         fs::write(&dest, html).await.map_err(AppError::Io)?;
         Ok(())
     }
 
-    fn render(&self, posts: &[WeiboPost], author_name: &str) -> String {
+    fn render(&self, posts: &[WeiboPost], author_name: &str, export_context: &ExportContext) -> String {
         let mut html = String::with_capacity(64 * 1024);
+
+        let title = if export_context.type_label == "收藏微博" {
+            "我收藏的微博".to_string()
+        } else {
+            format!("{} 的微博导出", author_name)
+        };
 
         html.push_str("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n");
         html.push_str("<meta charset=\"UTF-8\">\n");
         html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
         html.push_str(&format!(
-            "<title>{} 的微博导出</title>\n",
-            html_escape(author_name)
+            "<title>{}</title>\n",
+            html_escape(&title)
         ));
         html.push_str("<style>\n");
         html.push_str(CSS);
@@ -50,8 +61,8 @@ impl HtmlExportService {
 
         html.push_str("<header>\n");
         html.push_str(&format!(
-            "<h1>{} 的微博导出</h1>\n",
-            html_escape(author_name)
+            "<h1>{}</h1>\n",
+            html_escape(&title)
         ));
         html.push_str(&format!("<p class=\"subtitle\">共 {} 条微博</p>\n", posts.len()));
         html.push_str("</header>\n");

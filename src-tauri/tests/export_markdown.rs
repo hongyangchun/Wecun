@@ -34,12 +34,13 @@ async fn test_markdown_single() {
         &dir,
         &ExportContext {
             date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
         },
     )
     .await
     .unwrap();
 
-    let output = dir.join(markdown_export_filename("2024-01-01至2024-01-31", "测试用户"));
+    let output = dir.join(markdown_export_filename("微博备份", "2024-01-01至2024-01-31"));
     assert!(output.exists());
 
     let content = std::fs::read_to_string(&output).unwrap();

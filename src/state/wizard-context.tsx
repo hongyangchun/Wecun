@@ -83,7 +83,7 @@ export function WizardProvider({ children }: WizardProviderProps) {
         if (s.postFilter) dispatch({ type: "SET_POST_FILTER", filter: s.postFilter });
         if (s.includeImages !== undefined) dispatch({ type: "SET_INCLUDE_IMAGES", value: s.includeImages });
         if (s.dateMode) dispatch({ type: "SET_DATE_MODE", mode: s.dateMode });
-        if (s.minTextLength !== undefined) dispatch({ type: "SET_MIN_TEXT_LENGTH", length: s.minTextLength });
+        if (s.ignoreDeleted !== undefined) dispatch({ type: "SET_IGNORE_DELETED", value: s.ignoreDeleted });
       }
     } catch {
       void 0;
@@ -96,12 +96,12 @@ export function WizardProvider({ children }: WizardProviderProps) {
         postFilter: state.postFilter,
         includeImages: state.includeImages,
         dateMode: state.dateMode,
-        minTextLength: state.minTextLength,
+        ignoreDeleted: state.ignoreDeleted,
       }));
     } catch {
       void 0;
     }
-  }, [state.postFilter, state.includeImages, state.dateMode, state.minTextLength]);
+  }, [state.postFilter, state.includeImages, state.dateMode, state.ignoreDeleted]);
 
   return (
     <WizardContext.Provider value={{ state, dispatch }}>

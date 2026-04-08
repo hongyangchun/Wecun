@@ -11,7 +11,7 @@ pub struct AppState {
     pub posts_fetched: AtomicUsize,
     pub total_posts: AtomicUsize,
     pub posts_exported: AtomicUsize,
-    pub http_client: reqwest::Client,
+    http_client: Mutex<reqwest::Client>,
     cookie: Mutex<String>,
 }
 
@@ -24,19 +24,23 @@ impl Default for AppState {
             posts_fetched: AtomicUsize::new(0),
             total_posts: AtomicUsize::new(0),
             posts_exported: AtomicUsize::new(0),
-            http_client: reqwest::Client::builder()
-                .user_agent(USER_AGENT)
-                .timeout(Duration::from_secs(30))
-                .pool_idle_timeout(Duration::from_secs(90))
-                .pool_max_idle_per_host(4)
-                .build()
-                .expect("Failed to build HTTP client"),
+            http_client: Mutex::new(Self::create_client()),
             cookie: Mutex::new(String::new()),
         }
     }
 }
 
 impl AppState {
+    fn create_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .timeout(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(4)
+            .build()
+            .expect("Failed to build HTTP client")
+    }
+
     pub fn reset(&self) {
         self.cancel_flag
             .store(false, std::sync::atomic::Ordering::Relaxed);
@@ -57,11 +61,20 @@ impl AppState {
     }
 
     pub fn set_cookie(&self, cookie: String) {
-        let mut guard = self.cookie.lock().unwrap();
-        *guard = cookie;
+        {
+            let mut guard = self.cookie.lock().unwrap();
+            *guard = cookie;
+        }
+        // Force refresh the HTTP client to clear internal connection pool state/cookies
+        let mut client_guard = self.http_client.lock().unwrap();
+        *client_guard = Self::create_client();
     }
 
     pub fn get_cookie(&self) -> String {
         self.cookie.lock().unwrap().clone()
+    }
+
+    pub fn get_client(&self) -> reqwest::Client {
+        self.http_client.lock().unwrap().clone()
     }
 }

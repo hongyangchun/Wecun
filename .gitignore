@@ -25,3 +25,4 @@ dist-ssr
 
 # Signing keys
 .tauri-signing-key
+.superpowers/

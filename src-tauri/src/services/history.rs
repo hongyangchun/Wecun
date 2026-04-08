@@ -4,6 +4,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::models::SourceType;
+
 const HISTORY_FILE_NAME: &str = "download_history.json";
 const HISTORY_LIMIT: usize = 50;
 
@@ -14,6 +16,8 @@ pub struct HistoryEntry {
     pub output_dir: String,
     pub last_download: String,
     pub post_count: usize,
+    #[serde(default)]
+    pub source_type: Option<SourceType>,
 }
 
 pub struct HistoryService;
@@ -115,6 +119,7 @@ mod tests {
             output_dir: format!("/tmp/{uid}"),
             last_download: last_download.to_string(),
             post_count,
+            source_type: None,
         }
     }
 

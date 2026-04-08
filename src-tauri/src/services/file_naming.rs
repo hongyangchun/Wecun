@@ -58,11 +58,11 @@ pub fn obsidian_post_filename(created_at: &str, title_hint: &str, extension: &st
     format!("{date_prefix}-{title}.{extension}")
 }
 
-pub fn markdown_export_filename(date_range_label: &str, author_name: &str) -> String {
+pub fn markdown_export_filename(type_label: &str, date_range_label: &str) -> String {
     format!(
         "{}-{}.md",
-        sanitize_filename(date_range_label),
-        sanitize_filename(author_name)
+        sanitize_filename(type_label),
+        sanitize_filename(date_range_label)
     )
 }
 

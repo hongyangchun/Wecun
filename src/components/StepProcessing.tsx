@@ -48,6 +48,10 @@ export default function StepProcessing({
     { format: "md-multi", label: "Markdown（分文件）", desc: "每条微博一个独立文件，适合进一步整理" },
   ];
 
+  const isRiskWarning = logs.slice(-10).some((log) =>
+    log.includes("重试") || log.includes("网络异常") || log.includes("频繁") || log.includes("拦截") || log.includes("失败")
+  );
+
   const renderLog = () =>
     logs.length > 0 ? <LogPanel logs={logs} /> : null;
 
@@ -64,6 +68,17 @@ export default function StepProcessing({
               </span>
               <h2 className="processing-title">{phase || "正在下载..."}</h2>
             </div>
+
+            {isRiskWarning && (
+              <div style={{ marginTop: 16, padding: "10px 12px", borderRadius: 8, background: "rgba(255, 69, 58, 0.1)", border: "1px solid rgba(255, 69, 58, 0.3)" }}>
+                <p className="form-hint" style={{ margin: 0, color: "var(--color-text)", display: "flex", gap: 6 }}>
+                  <span style={{ fontSize: 14 }}>⚠️</span>
+                  <span>
+                    <b>风控预警</b>：检测到接口请求失败或异常，程序正尝试重试。为保护账号安全，若持续报错建议<b>停止下载</b>，明天再试。
+                  </span>
+                </p>
+              </div>
+            )}
 
             {progress > 0 ? (
               <div className="center-illustration" style={{ padding: "20px 0" }}>

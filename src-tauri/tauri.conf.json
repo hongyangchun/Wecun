@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "微博备份助手",
+  "productName": "微存",
   "version": "1.0.0",
-  "identifier": "com.hongyangchun.weibo-downloader",
+  "identifier": "com.hongyangchun.wecun",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "微博备份助手",
+        "title": "微存",
         "width": 580,
         "height": 760,
         "resizable": true,

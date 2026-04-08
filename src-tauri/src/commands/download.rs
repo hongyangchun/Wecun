@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use tauri::{Emitter, State};
 
 use crate::error::AppError;
-use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase};
+use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase, SourceType};
 use crate::services::downloader::DownloadService;
 use crate::services::export_html::HtmlExportService;
 use crate::services::export_markdown::MarkdownExportService;
@@ -25,7 +25,7 @@ pub async fn start_download(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    if request.uid.trim().is_empty() {
+    if matches!(request.source_type, SourceType::Profile) && request.uid.trim().is_empty() {
         return Err("用户ID不能为空".to_string());
     }
     if state.get_cookie().is_empty() {
@@ -44,7 +44,7 @@ pub async fn start_download(
             let history_dir = app
                 .path()
                 .app_data_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"));
+                .unwrap_or_else(|_| std::env::temp_dir().join("wecun"));
             let _ = HistoryService::new().save(
                 &history_dir,
                 HistoryEntry {
@@ -53,6 +53,7 @@ pub async fn start_download(
                     output_dir: request.output_dir.clone(),
                     last_download: chrono::Utc::now().to_rfc3339(),
                     post_count: count,
+                    source_type: Some(request.source_type.clone()),
                 },
             );
             let _ = app.emit(
@@ -76,7 +77,7 @@ pub fn list_download_history(app: tauri::AppHandle) -> Vec<HistoryEntry> {
     let dir = app
         .path()
         .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"));
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"));
     HistoryService::list(&dir)
 }
 
@@ -85,7 +86,7 @@ pub fn delete_history_entry(app: tauri::AppHandle, uid: String) -> Result<(), St
     let dir = app
         .path()
         .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"));
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"));
     HistoryService::new()
         .delete(&dir, &uid)
         .map_err(|e| e.to_string())
@@ -135,7 +136,7 @@ pub async fn export_posts(
             .await
             .map_err(|e| format!("导出Markdown(每条一文)失败: {e}"))?,
         ExportFormat::Html => HtmlExportService::new()
-            .export(&posts, &request.output_dir)
+            .export(&posts, &request.output_dir, &export_context)
             .await
             .map_err(|e| format!("导出HTML失败: {e}"))?,
     }

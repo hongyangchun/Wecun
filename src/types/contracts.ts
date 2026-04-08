@@ -12,7 +12,8 @@ export interface DownloadRequest {
     end_timestamp: number | null;
   };
   output_dir: string;
-  min_text_length: number;
+  ignore_deleted: boolean;
+  source_type: "profile" | "favorites";
 }
 
 export interface ExportRequest {

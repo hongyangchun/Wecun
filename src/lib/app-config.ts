@@ -1,4 +1,4 @@
-export const APP_NAME = "微博备份助手";
+export const APP_NAME = "微存";
 
 export const DONATION_CONFIG = {
   wechatId: "",

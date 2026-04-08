@@ -153,12 +153,14 @@ mod tests {
             &output_dir_str,
             CheckpointMeta {
                 uid: "123456".to_string(),
+                source_type: None,
                 last_page: 3,
                 total_fetched: 42,
                 total_posts: 99,
             },
             &ExportContext {
                 date_range_label: "2024-01-01至2024-01-31".to_string(),
+                type_label: "微博备份".to_string(),
             },
         )
         .await

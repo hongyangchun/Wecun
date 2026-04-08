@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::error::AppError;
 use crate::models::{
-    ProgressEvent, ProgressPhase, RawHistoryMap, RawLongText, RawPost, RawSearchProfile,
+    ProgressEvent, ProgressPhase, RawHistoryMap, RawLongText, RawPost, RawSearchProfile, RawFavProfile,
     RawUserInfo, UserProfile, WeiboImage, WeiboPost,
 };
 use crate::state::AppState;
@@ -20,7 +20,7 @@ const WEIBO_BASE: &str = "https://weibo.com";
 const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1000);
 const COOKIE_FILE_NAME: &str = "weibo_cookie.dat";
 const STRONGHOLD_FILE_NAME: &str = "cookie_vault.tauri";
-const STRONGHOLD_PASSWORD: &str = "weibo-downloader-vault-key";
+const STRONGHOLD_PASSWORD: &str = "wecun-vault-key";
 const STRONGHOLD_CLIENT_NAME: &[u8] = b"weibo-cookie-client";
 const COOKIE_STORE_KEY: &[u8] = b"weibo-session-cookie";
 
@@ -78,7 +78,7 @@ impl<R: Runtime> WeiboApiClient<R> {
             return Err(AppError::ApiError("请先登录".to_string()));
         }
 
-        let client = state.http_client.clone();
+        let client = state.get_client();
 
         let mut url = format!("{WEIBO_BASE}{path}");
         if !query.is_empty() {
@@ -255,6 +255,27 @@ impl<R: Runtime> WeiboApiClient<R> {
         Ok((list, total))
     }
 
+    pub async fn fetch_favorites_page(
+        &self,
+        page: i64,
+        starttime: Option<i64>,
+        endtime: Option<i64>,
+    ) -> Result<(Vec<RawPost>, i64), AppError> {
+        let mut query = vec![("page", page.to_string())];
+        if let Some(ts) = starttime {
+            query.push(("starttime", ts.to_string()));
+        }
+        if let Some(ts) = endtime {
+            query.push(("endtime", ts.to_string()));
+        }
+
+        let raw: RawFavProfile = self.get_json("/ajax/favorites/all_fav", &query).await?;
+
+        let list = raw.data.unwrap_or_default();
+        let total = if list.is_empty() { 0 } else { -1 };
+        Ok((list, total))
+    }
+
     pub async fn get_long_text(&self, mblogid: &str) -> Result<String, AppError> {
         let raw: RawLongText = self
             .get_json("/ajax/statuses/longtext", &[("id", mblogid.to_string())])
@@ -288,7 +309,12 @@ impl<R: Runtime> WeiboApiClient<R> {
 
         let region = raw.region_name.clone();
         let images = Self::parse_images(&raw.pic_infos);
-        let source_url = format!("https://weibo.com/{}/{}", uid, raw.mblogid);
+        let uid_for_url = if uid.is_empty() {
+            raw.user.as_ref().map(|u| u.id.to_string()).unwrap_or_else(|| "unknown".to_string())
+        } else {
+            uid.to_string()
+        };
+        let source_url = format!("https://weibo.com/{}/{}", uid_for_url, raw.mblogid);
         let tags = Self::extract_tags(raw);
 
         WeiboPost {
@@ -468,7 +494,7 @@ fn retry_delay(config: &RetryConfig, attempt: u32) -> Duration {
 fn cookie_dir<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     app.path()
         .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
 }
 
 fn cookie_file_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {

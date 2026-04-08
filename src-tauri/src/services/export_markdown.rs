@@ -118,7 +118,10 @@ fn export_author_name(posts: &[WeiboPost]) -> String {
 }
 
 fn single_export_filename(posts: &[WeiboPost], export_context: &ExportContext) -> String {
-    markdown_export_filename(&export_context.date_range_label, &export_author_name(posts))
+    markdown_export_filename(
+        &export_context.type_label,
+        &export_context.date_range_label,
+    )
 }
 
 fn html_to_markdown(html: &str) -> String {

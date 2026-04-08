@@ -16,7 +16,7 @@ fn apply_saved_cookie_to_state_stores_non_empty_cookie() {
 fn app_state_default_exposes_reusable_http_client() {
     let state = AppState::default();
 
-    let cloned = state.http_client.clone();
+    let cloned = state.get_client();
     let request = cloned.get("https://example.com/image.jpg").build().unwrap();
 
     assert_eq!(request.url().as_str(), "https://example.com/image.jpg");

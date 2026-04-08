@@ -59,6 +59,13 @@ export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) 
         {isOpening ? "正在打开..." : "打开登录页面"}
       </button>
 
+      <div style={{ marginTop: 24, padding: "12px", background: "var(--color-bg-inset)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)", textAlign: "left" }}>
+        <p className="form-hint" style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: 12, lineHeight: 1.5 }}>
+          <span style={{ fontSize: 14 }}>⚠️</span> <b>免责声明：</b><br/>
+          本工具仅供<b>备份个人数字记录</b>使用。为保护账号安全，建议控制单次下载量，或使用辅助账号进行操作。
+        </p>
+      </div>
+
       {restoreError && (
         <p style={{ marginTop: 16, fontSize: 12, color: "var(--color-danger)" }}>{restoreError}</p>
       )}

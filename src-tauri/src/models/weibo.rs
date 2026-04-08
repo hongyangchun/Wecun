@@ -33,6 +33,31 @@ pub struct RawSearchProfileData {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct RawFavProfile {
+    pub ok: Option<i32>,
+    #[serde(deserialize_with = "flatten_fav_data")]
+    pub data: Option<Vec<RawPost>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum FavData {
+    List(Vec<RawPost>),
+    Map { list: Vec<RawPost> },
+}
+
+fn flatten_fav_data<'de, D>(deserializer: D) -> Result<Option<Vec<RawPost>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<FavData>::deserialize(deserializer)?;
+    Ok(opt.map(|fav_data| match fav_data {
+        FavData::List(list) => list,
+        FavData::Map { list } => list,
+    }))
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct RawPost {
     pub mblogid: String,
     pub created_at: String,

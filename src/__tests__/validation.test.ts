@@ -94,7 +94,8 @@ describe("validation utilities", () => {
           dateStart: "2024-01-01",
           dateEnd: "2024-01-31",
           outputDir: "/tmp/weibo",
-          minTextLength: 20,
+          ignoreDeleted: true,
+          sourceType: "profile",
         }),
       ).toEqual({
         uid: "2166767661",
@@ -106,7 +107,8 @@ describe("validation utilities", () => {
           end_timestamp: 1706716799,
         },
         output_dir: "/tmp/weibo",
-        min_text_length: 20,
+        ignore_deleted: true,
+        source_type: "profile",
       });
     });
 
@@ -121,7 +123,8 @@ describe("validation utilities", () => {
           dateStart: "2024-01-01",
           dateEnd: "2024-01-31",
           outputDir: "/tmp/weibo",
-          minTextLength: 5,
+          ignoreDeleted: false,
+          sourceType: "profile",
         }),
       ).toEqual({
         uid: "2166767661",
@@ -133,7 +136,8 @@ describe("validation utilities", () => {
           end_timestamp: null,
         },
         output_dir: "/tmp/weibo",
-        min_text_length: 5,
+        ignore_deleted: false,
+        source_type: "profile",
       });
     });
   });

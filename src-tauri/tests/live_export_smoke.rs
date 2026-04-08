@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::TimeZone;
-use tauri_app_lib::models::{DateRange, DownloadRequest, PostFilter};
+use tauri_app_lib::models::{DateRange, DownloadRequest, PostFilter, SourceType};
 use tauri_app_lib::services::downloader::DownloadService;
 use tauri_app_lib::services::export_markdown::MarkdownExportService;
 use tauri_app_lib::services::cache;
@@ -30,7 +30,7 @@ fn temp_output_dir() -> PathBuf {
 fn actual_saved_cookie() -> String {
     let home = std::env::var("HOME").expect("HOME should be set");
     let path = PathBuf::from(home)
-        .join("Library/Application Support/com.hongyangchun.weibo-downloader/weibo_cookie.dat");
+        .join("Library/Application Support/com.hongyangchun.wecun/weibo_cookie.dat");
     fs::read_to_string(path).expect("expected saved live Weibo cookie file")
 }
 
@@ -50,6 +50,7 @@ async fn live_session_exports_real_long_post_content() {
 
     let request = DownloadRequest {
         uid: "1195242865".to_string(),
+        source_type: SourceType::Profile,
         cookie: String::new(),
         filter: PostFilter::All,
         include_images: false,
@@ -68,7 +69,7 @@ async fn live_session_exports_real_long_post_content() {
                 .timestamp()),
         },
         output_dir: output_dir.to_string_lossy().to_string(),
-        min_text_length: 0,
+        ignore_deleted: false,
     };
 
     DownloadService::new()
@@ -91,8 +92,8 @@ async fn live_session_exports_real_long_post_content() {
         .map(|post| post.author.as_str())
         .expect("expected cached posts to include at least one item");
     let export_file = output_dir.join(markdown_export_filename(
+        &cached_bundle.export_context.type_label,
         &cached_bundle.export_context.date_range_label,
-        author,
     ));
     let content = fs::read_to_string(&export_file).expect("expected markdown export file");
 

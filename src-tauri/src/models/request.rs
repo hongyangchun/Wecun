@@ -19,6 +19,13 @@ pub enum ExportFormat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceType {
+    Profile,
+    Favorites,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DateRange {
     pub start_timestamp: Option<i64>,
     pub end_timestamp: Option<i64>,
@@ -27,12 +34,13 @@ pub struct DateRange {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadRequest {
     pub uid: String,
+    pub source_type: SourceType,
     pub cookie: String,
     pub filter: PostFilter,
     pub include_images: bool,
     pub date_range: DateRange,
     pub output_dir: String,
-    pub min_text_length: usize,
+    pub ignore_deleted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

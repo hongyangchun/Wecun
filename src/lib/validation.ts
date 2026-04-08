@@ -67,7 +67,8 @@ export interface FormValues {
   dateStart: string;
   dateEnd: string;
   outputDir: string;
-  minTextLength: number;
+  ignoreDeleted: boolean;
+  sourceType: "profile" | "favorites";
 }
 
 export function buildDownloadRequest(values: FormValues): DownloadRequest {
@@ -81,6 +82,7 @@ export function buildDownloadRequest(values: FormValues): DownloadRequest {
       end_timestamp: values.dateMode === "range" ? dateToEndTimestamp(values.dateEnd) : null,
     },
     output_dir: values.outputDir,
-    min_text_length: values.minTextLength,
+    ignore_deleted: values.ignoreDeleted,
+    source_type: values.sourceType,
   };
 }

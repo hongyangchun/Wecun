@@ -13,7 +13,7 @@ export interface WizardState {
   dateMode: DateMode;
   dateStart: string;
   dateEnd: string;
-  minTextLength: number;
+  ignoreDeleted: boolean;
   exportFormat: ExportFormat;
   outputDir: string;
   processStatus: ProcessStatus;
@@ -23,6 +23,7 @@ export interface WizardState {
   total: number;
   errorMessage?: string;
   logs: string[];
+  sourceType: "profile" | "favorites";
 }
 
 export const INITIAL_STATE: WizardState = {
@@ -36,7 +37,7 @@ export const INITIAL_STATE: WizardState = {
   dateMode: "all",
   dateStart: "",
   dateEnd: "",
-  minTextLength: 20,
+  ignoreDeleted: true,
   exportFormat: "html",
   outputDir: "",
   processStatus: "idle",
@@ -46,6 +47,7 @@ export const INITIAL_STATE: WizardState = {
   total: 0,
   errorMessage: undefined,
   logs: [],
+  sourceType: "profile",
 };
 
 export type WizardAction =
@@ -61,9 +63,10 @@ export type WizardAction =
   | { type: "SET_DATE_MODE"; mode: DateMode }
   | { type: "SET_DATE_START"; date: string }
   | { type: "SET_DATE_END"; date: string }
-  | { type: "SET_MIN_TEXT_LENGTH"; length: number }
+  | { type: "SET_IGNORE_DELETED"; value: boolean }
   | { type: "SET_EXPORT_FORMAT"; format: ExportFormat }
   | { type: "SET_OUTPUT_DIR"; dir: string }
+  | { type: "SET_SOURCE_TYPE"; sourceType: "profile" | "favorites" }
   | { type: "START_PROCESSING" }
   | { type: "UPDATE_PROGRESS"; phase: ProgressPhase; current: number; total: number; message: string }
   | { type: "DOWNLOAD_COMPLETE" }
@@ -144,14 +147,17 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "SET_DATE_END":
       return { ...state, dateEnd: action.date };
 
-    case "SET_MIN_TEXT_LENGTH":
-      return { ...state, minTextLength: action.length };
+    case "SET_IGNORE_DELETED":
+      return { ...state, ignoreDeleted: action.value };
 
     case "SET_EXPORT_FORMAT":
       return { ...state, exportFormat: action.format };
 
     case "SET_OUTPUT_DIR":
       return { ...state, outputDir: action.dir };
+
+    case "SET_SOURCE_TYPE":
+      return { ...state, sourceType: action.sourceType };
 
     case "START_PROCESSING":
       return {

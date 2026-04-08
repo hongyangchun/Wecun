@@ -34,7 +34,7 @@ fn cookie_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path:
     handle
         .path()
         .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("weibo-downloader"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
 }
 
 fn cleanup_cookie_storage(handle: &tauri::AppHandle<tauri::test::MockRuntime>) {

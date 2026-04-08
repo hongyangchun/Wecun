@@ -51,7 +51,7 @@ fn rich_html_post() -> WeiboPost {
 }
 
 fn single_export_path(dir: &std::path::Path) -> std::path::PathBuf {
-    dir.join(markdown_export_filename("2024-01-01至2024-01-31", "测试用户"))
+    dir.join(markdown_export_filename("微博备份", "2024-01-01至2024-01-31"))
 }
 
 #[tokio::test]
@@ -65,6 +65,7 @@ async fn markdown_export_preserves_link_targets() {
         &dir,
         &ExportContext {
             date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
         },
     )
     .await
@@ -85,6 +86,7 @@ async fn markdown_export_preserves_rich_html_formatting() {
         &dir,
         &ExportContext {
             date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
         },
     )
     .await
@@ -109,6 +111,7 @@ async fn markdown_export_time_link_appears_above_body() {
         &dir,
         &ExportContext {
             date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
         },
     )
     .await
