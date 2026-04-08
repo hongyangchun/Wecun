@@ -49,7 +49,8 @@ function formatLabel(fmt: ExportFormat): string {
   const labels: Record<ExportFormat, string> = {
     html: "HTML",
     "md-single": "Markdown",
-    "md-multi": "Markdown（分文件）",
+    "md-obsidian": "Markdown (Obsidian)",
+    "md-split": "Markdown（分文件）",
   };
   return labels[fmt];
 }

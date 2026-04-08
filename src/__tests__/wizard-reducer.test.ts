@@ -19,7 +19,7 @@ const setActionCases: Array<{
   { label: "SET_DATE_START", action: { type: "SET_DATE_START", date: "2024-01-01" }, key: "dateStart", expected: "2024-01-01" },
   { label: "SET_DATE_END", action: { type: "SET_DATE_END", date: "2024-01-31" }, key: "dateEnd", expected: "2024-01-31" },
   { label: "SET_IGNORE_DELETED", action: { type: "SET_IGNORE_DELETED", value: false }, key: "ignoreDeleted", expected: false },
-  { label: "SET_EXPORT_FORMAT", action: { type: "SET_EXPORT_FORMAT", format: "md-multi" satisfies ExportFormat }, key: "exportFormat", expected: "md-multi" },
+  { label: "SET_EXPORT_FORMAT", action: { type: "SET_EXPORT_FORMAT", format: "md-obsidian" satisfies ExportFormat }, key: "exportFormat", expected: "md-obsidian" },
   { label: "SET_OUTPUT_DIR", action: { type: "SET_OUTPUT_DIR", dir: "/tmp/weibo" }, key: "outputDir", expected: "/tmp/weibo" },
 ];
 
@@ -238,7 +238,7 @@ describe("wizardReducer", () => {
         dateStart: "2024-01-01",
         dateEnd: "2024-01-31",
         ignoreDeleted: false,
-        exportFormat: "md-multi",
+        exportFormat: "md-obsidian",
         outputDir: "/tmp/out",
         processStatus: "done",
         progress: 100,

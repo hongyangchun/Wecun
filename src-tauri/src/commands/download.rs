@@ -131,10 +131,17 @@ pub async fn export_posts(
             .export(&posts, &request.output_dir, &export_context, true)
             .await
             .map_err(|e| format!("导出Markdown失败: {e}"))?,
-        ExportFormat::MarkdownPerPost => MarkdownExportService::new()
+        ExportFormat::MarkdownObsidian => MarkdownExportService::new()
             .export(&posts, &request.output_dir, &export_context, false)
             .await
-            .map_err(|e| format!("导出Markdown(每条一文)失败: {e}"))?,
+            .map_err(|e| format!("导出Markdown(Obsidian)失败: {e}"))?,
+        ExportFormat::MarkdownSplit => {
+            let export_service = MarkdownExportService::new();
+            export_service
+                .export_split(&posts, std::path::Path::new(&request.output_dir))
+                .await
+                .map_err(|e| format!("导出Markdown(Split)失败: {e}"))?
+        }
         ExportFormat::Html => HtmlExportService::new()
             .export(&posts, &request.output_dir, &export_context)
             .await
@@ -152,7 +159,8 @@ pub async fn export_posts(
 fn format_label(fmt: &ExportFormat) -> &'static str {
     match fmt {
         ExportFormat::MarkdownSingle => "Markdown",
-        ExportFormat::MarkdownPerPost => "Markdown (每条一文)",
+        ExportFormat::MarkdownObsidian => "Markdown (Obsidian兼容)",
+        ExportFormat::MarkdownSplit => "Markdown (分文件)",
         ExportFormat::Html => "HTML",
     }
 }

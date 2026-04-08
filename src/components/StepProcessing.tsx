@@ -45,7 +45,8 @@ export default function StepProcessing({
   const exportActions: Array<{ format: ExportFormat; label: string; desc: string }> = [
     { format: "html", label: "HTML", desc: "适合直接在浏览器中查看和分享" },
     { format: "md-single", label: "Markdown（单文件）", desc: "适合整理成一份完整备份" },
-    { format: "md-multi", label: "Markdown（分文件）", desc: "每条微博一个独立文件，适合进一步整理" },
+    { format: "md-obsidian", label: "Markdown（Obsidian兼容）", desc: "每条微博一个文件，带 YAML frontmatter，可直接导入 Obsidian" },
+    { format: "md-split", label: "Markdown（分文件）", desc: "每条微博一个独立文件，使用单文件格式的内容排版" },
   ];
 
   const isRiskWarning = logs.slice(-10).some((log) =>

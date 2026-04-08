@@ -51,25 +51,22 @@ impl MarkdownExportService {
         Ok(())
     }
 
-    pub async fn export_per_post(&self, posts: &[WeiboPost], output_dir: &Path) -> Result<(), AppError> {
-    let posts_dir = output_dir.join("posts");
-    fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
-    let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
+    pub async fn export_per_post(
+        &self,
+        posts: &[WeiboPost],
+        output_dir: &Path,
+    ) -> Result<(), AppError> {
+        let posts_dir = output_dir.join("posts");
+        fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
+        let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
 
-    for post in posts {
-        let content = self.format_post_split(&post);
-        let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
-        let dest = posts_dir.join(&filename);
-        fs::write(&dest, content).await.map_err(AppError::Io)?;
-        index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
-    }
-
-    fs::write(posts_dir.join("index.md"), index)
-        .await
-        .map_err(AppError::Io)?;
-
-    Ok(())
-}
+        for post in posts {
+            let content = self.format_post(post, true);
+            let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
+            let dest = posts_dir.join(&filename);
+            fs::write(&dest, content).await.map_err(AppError::Io)?;
+            index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
+        }
 
         fs::write(posts_dir.join("index.md"), index)
             .await
@@ -85,7 +82,10 @@ impl MarkdownExportService {
         if for_per_post_export {
             md.push_str(&frontmatter(post));
         } else {
-            md.push_str(&format!("**{}** · {} · [原文链接]({})\n\n", post.author, post.created_at, post.source_url));
+            md.push_str(&format!(
+                "**{}** · {} · [原文链接]({})\n\n",
+                post.author, post.created_at, post.source_url
+            ));
         }
 
         md.push_str(&plain_text);
@@ -123,7 +123,11 @@ impl MarkdownExportService {
         md
     }
 
-    pub async fn export_split(&self, posts: &[WeiboPost], output_dir: &Path) -> Result<(), AppError> {
+    pub async fn export_split(
+        &self,
+        posts: &[WeiboPost],
+        output_dir: &Path,
+    ) -> Result<(), AppError> {
         let posts_dir = output_dir.join("posts");
         fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
         let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
@@ -133,7 +137,10 @@ impl MarkdownExportService {
             let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
             let dest = posts_dir.join(&filename);
             fs::write(&dest, content).await.map_err(AppError::Io)?;
-            index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
+            index.push_str(&format!(
+                "- [{} — {}](./{})\n",
+                post.author, post.created_at, filename
+            ));
         }
 
         fs::write(posts_dir.join("index.md"), index)
@@ -146,9 +153,12 @@ impl MarkdownExportService {
     fn format_post_split(&self, post: &WeiboPost) -> String {
         let mut md = String::new();
 
-        let plain_text = html_to_markdown(&post.text);
-        md.push_str(&format!("**{}** · {} · [原文链接]({})\n\n", post.author, post.created_at, post.source_url));
+        md.push_str(&format!(
+            "**{}** · {} · [原文链接]({})\n\n",
+            post.author, post.created_at, post.source_url
+        ));
 
+        let plain_text = html_to_markdown(&post.text);
         md.push_str(&plain_text);
         md.push_str("\n\n");
 
@@ -166,16 +176,23 @@ impl MarkdownExportService {
             md.push_str("### 图片\n\n");
             for (i, img) in post.images.iter().enumerate() {
                 let img_ref = match img.local_path.as_deref() {
-                    Some(path) => path.to_string(),
+                    Some(path) => format!("images/{}", path),
                     None => img.original_url.clone(),
-                Some(path) => format!("images/{}", path),
-                None => img.original_url.clone(),
-            };
-            md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
+                };
+                md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
+            }
         }
-    }
 
-    md
+        md
+    }
+}
+
+fn export_author_name(posts: &[WeiboPost]) -> String {
+    posts
+        .first()
+        .map(|post| post.author.clone())
+        .filter(|author| !author.trim().is_empty())
+        .unwrap_or_else(|| "微博用户".to_string())
 }
 
 fn single_export_filename(_posts: &[WeiboPost], export_context: &ExportContext) -> String {
@@ -201,12 +218,24 @@ fn extract_title_hint(post: &WeiboPost) -> String {
 
 fn frontmatter(post: &WeiboPost) -> String {
     let mut result = String::from("---\n");
-    result.push_str(&format!("title: \"{}\"\n", yaml_escape(&extract_title_hint(post))));
+    result.push_str(&format!(
+        "title: \"{}\"\n",
+        yaml_escape(&extract_title_hint(post))
+    ));
     result.push_str("aliases:\n");
-    result.push_str(&format!("  - \"{}\"\n", yaml_escape(&extract_title_hint(post))));
+    result.push_str(&format!(
+        "  - \"{}\"\n",
+        yaml_escape(&extract_title_hint(post))
+    ));
     result.push_str(&format!("author: \"{}\"\n", yaml_escape(&post.author)));
-    result.push_str(&format!("created_at: \"{}\"\n", yaml_escape(&post.created_at)));
-    result.push_str(&format!("source_url: \"{}\"\n", yaml_escape(&post.source_url)));
+    result.push_str(&format!(
+        "created_at: \"{}\"\n",
+        yaml_escape(&post.created_at)
+    ));
+    result.push_str(&format!(
+        "source_url: \"{}\"\n",
+        yaml_escape(&post.source_url)
+    ));
     if !post.tags.is_empty() {
         result.push_str("tags:\n");
         for tag in &post.tags {
@@ -260,7 +289,11 @@ fn convert_links(html: &str) -> String {
             return result;
         };
         let text = &after_tag[..close_idx];
-        result.push_str(&format!("[{}]({})", crate::utils::html::strip_html_tags(text), href));
+        result.push_str(&format!(
+            "[{}]({})",
+            crate::utils::html::strip_html_tags(text),
+            href
+        ));
         remaining = &after_tag[close_idx + 4..];
     }
 
