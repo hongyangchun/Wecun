@@ -8,7 +8,7 @@
 - ⭐ 下载登录账号的收藏微博
 - 🖼️ 可选是否包含图片
 - 📅 可选全部微博或指定时间段内的微博
-- 📄 导出为 Markdown 或 HTML 格式
+- 📄 导出为多种格式：HTML、Markdown（单文件）、Markdown（Obsidian兼容）、Markdown（分文件）
 - 🪟 支持 Windows、macOS（Apple Silicon & Intel）和 Linux
 
 ## 快速开始
