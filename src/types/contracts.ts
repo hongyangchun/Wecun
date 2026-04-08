@@ -1,6 +1,6 @@
 export type PostFilter = "original" | "all";
 export type DateMode = "all" | "range";
-export type ExportFormat = "md-single" | "md-multi" | "html";
+export type ExportFormat = "md-single" | "md-obsidian" | "md-split" | "html";
 
 export interface DownloadRequest {
   uid: string;
