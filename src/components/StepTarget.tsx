@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { listDownloadHistory, type HistoryEntry } from "../lib/tauri-bridge";
+import { listDownloadHistory } from "../lib/tauri-bridge";
+import type { HistoryEntry } from "../types/contracts";
 import { isValidProfileUrl } from "../lib/validation";
 
 interface StepTargetProps {

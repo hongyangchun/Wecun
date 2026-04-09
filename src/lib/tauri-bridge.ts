@@ -3,15 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import type { DownloadRequest, ExportRequest, ProgressEvent } from "../types/contracts";
-
-export interface HistoryEntry {
-  uid: string;
-  screen_name: string;
-  output_dir: string;
-  last_download: string;
-  post_count: number;
-}
+import type { DownloadRequest, ExportRequest, ExportFormat, ProgressEvent, ProfileResult, HistoryEntry } from "../types/contracts";
 
 export interface UpdateProgressStartedEvent {
   event: "Started";
@@ -126,4 +118,20 @@ export function onCookieReceived(callback: (cookie: string) => void) {
 
 export function onLoginInvalid(callback: (message: string) => void) {
   return listen<string>("login-invalid", (e) => callback(e.payload));
+}
+
+export async function analyzeProfile(outputDir: string): Promise<ProfileResult> {
+  return await invoke<ProfileResult>("analyze_profile", { outputDir });
+}
+
+export async function exportOpenclaw(outputDir: string, profile: ProfileResult): Promise<string> {
+  return await invoke<string>("export_openclaw", { outputDir, profile });
+}
+
+export async function getHistoryEntry(uid: string): Promise<HistoryEntry> {
+  return await invoke<HistoryEntry>("get_history_entry", { uid });
+}
+
+export async function exportFromHistory(uid: string, exportFormat: ExportFormat): Promise<string> {
+  return await invoke<string>("export_from_history", { uid, exportFormat });
 }
