@@ -5,6 +5,8 @@ import StepTarget from "./components/StepTarget";
 import StepOptions from "./components/StepOptions";
 import StepExportSettings from "./components/StepExportSettings";
 import StepProcessing from "./components/StepProcessing";
+import ProfilePanel from "./components/ProfilePanel";
+import HistoryPanel from "./components/HistoryPanel";
 import { WizardProvider, useWizard } from "./state/wizard-context";
 import {
   startDownload,
@@ -14,11 +16,13 @@ import {
   clearSavedCookie,
   checkForAppUpdate,
   relaunchApp,
+  analyzeProfile,
+  exportOpenclaw,
   type AppUpdate,
   type UpdateProgressEvent,
 } from "./lib/tauri-bridge";
 import { buildDownloadRequest, extractUidFromUrl, isValidProfileUrl } from "./lib/validation";
-import type { ExportFormat } from "./types/contracts";
+import type { ExportFormat, ProfileResult } from "./types/contracts";
 import "./App.css";
 
 const STEPS = ["登录", "目标", "选项", "保存"];
@@ -196,6 +200,9 @@ function AppShell() {
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
   const [updateToast, setUpdateToast] = useState<UpdateToastState>(INITIAL_UPDATE_TOAST);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [profileResult, setProfileResult] = useState<ProfileResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const canGoNext = useCallback(() => {
     if (state.step === 0) return state.isLoggedIn;
@@ -291,6 +298,40 @@ function AppShell() {
   const handleOpenOutputDir = useCallback(async () => {
     if (state.outputDir) await openOutputDir(state.outputDir);
   }, [state.outputDir]);
+
+  const handleAnalyze = useCallback(async () => {
+    setIsAnalyzing(true);
+    setProfileResult(null);
+    dispatch({ type: "EXPORT_START" });
+    dispatch({ type: "ADD_LOG", message: "正在分析博主画像..." });
+
+    try {
+      const result = await analyzeProfile(state.outputDir);
+      setProfileResult(result);
+      dispatch({ type: "DOWNLOAD_COMPLETE" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      dispatch({ type: "PROCESS_ERROR", message: msg });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [state.outputDir, dispatch]);
+
+  const handleExportOpenclaw = useCallback(async () => {
+    if (!profileResult) return;
+
+    try {
+      const result = await exportOpenclaw(state.outputDir, profileResult);
+      dispatch({ type: "ADD_LOG", message: result });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      dispatch({ type: "PROCESS_ERROR", message: msg });
+    }
+  }, [profileResult, state.outputDir, dispatch]);
+
+  const handleCloseProfile = useCallback(() => {
+    setProfileResult(null);
+  }, []);
 
   const dismissUpdateToast = useCallback(() => {
     setUpdateToast(INITIAL_UPDATE_TOAST);
@@ -418,6 +459,14 @@ function AppShell() {
           <h1 className="app-title">微存 <span style={{ fontSize: "0.5em", opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>Wecun</span></h1>
           {state.isLoggedIn && (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setIsHistoryOpen(true)}
+                type="button"
+                style={{ padding: "6px 12px", fontSize: 13 }}
+              >
+                历史
+              </button>
               <span className="auth-badge">
                 <span className="auth-dot" />
                 已登录
@@ -547,10 +596,10 @@ function AppShell() {
           </>
         )}
 
-        {isProcessing && (
+        {isProcessing && !profileResult && (
           <StepProcessing
             processStatus={state.processStatus as Exclude<typeof state.processStatus, "idle">}
-            phase={state.phase}
+            phase={isAnalyzing ? "正在分析博主画像..." : state.phase}
             progress={state.progress}
             current={state.current}
             total={state.total}
@@ -561,13 +610,35 @@ function AppShell() {
             onExport={handleExport}
             onContinueExport={handleContinueExport}
             onOpenOutputDir={handleOpenOutputDir}
+            onAnalyze={handleAnalyze}
           />
+        )}
+
+        {profileResult && (
+          <div className="processing-overlay">
+            <div className="processing-dialog" style={{ maxWidth: 520 }}>
+              <ProfilePanel
+                profile={profileResult}
+                authorName={state.profileUrl.split("/").pop() || "博主"}
+                onExportOpenclaw={handleExportOpenclaw}
+                onClose={handleCloseProfile}
+              />
+            </div>
+          </div>
         )}
 
         {updateToast.status === "downloading" && getUpdateProgressPercent(updateToast.downloadedBytes, updateToast.totalBytes) === 100 && (
           <div style={{ display: "none" }}>100%</div>
         )}
       </div>
+
+      {isHistoryOpen && (
+        <HistoryPanel
+          isOpen={isHistoryOpen}
+          onClose={() => setIsHistoryOpen(false)}
+          onLog={(msg) => dispatch({ type: "ADD_LOG", message: msg })}
+        />
+      )}
     </div>
   );
 }
