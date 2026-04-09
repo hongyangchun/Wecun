@@ -241,3 +241,93 @@ pub fn clear_saved_cookie_cmd(app: tauri::AppHandle) {
     state.set_cookie(String::new());
     clear_saved_cookie(&app);
 }
+
+#[tauri::command]
+pub fn get_history_entry(
+    uid: String,
+    app: tauri::AppHandle,
+) -> Result<HistoryEntry, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"));
+    let entries = HistoryService::list(&dir);
+    entries
+        .into_iter()
+        .find(|e| e.uid == uid)
+        .ok_or_else(|| "未找到该历史记录".to_string())
+}
+
+#[tauri::command]
+pub async fn export_from_history(
+    uid: String,
+    export_format: ExportFormat,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    // 获取历史记录以找到 output_dir
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"));
+    let history_entry = HistoryService::list(&dir)
+        .into_iter()
+        .find(|e| e.uid == uid)
+        .ok_or_else(|| "未找到该历史记录".to_string())?;
+
+    // 使用 export_posts 的逻辑
+    let bundle = crate::services::cache::load_cache_bundle_sync(&history_entry.output_dir)
+        .map_err(|e| {
+            if matches!(e, AppError::Io(ref io_err) if io_err.kind() == std::io::ErrorKind::NotFound) {
+                "找不到缓存文件，该记录可能已失效".to_string()
+            } else if matches!(e, AppError::Parse(_)) {
+                "缓存文件已损坏，请重新下载".to_string()
+            } else {
+                format!("读取缓存失败: {e}")
+            }
+        })?;
+
+    let export_context = bundle.export_context;
+    let posts = bundle.posts;
+
+    if posts.is_empty() {
+        return Err("没有可导出的微博数据".to_string());
+    }
+
+    let _ = app.emit(
+        "download-progress",
+        ProgressEvent::new(
+            ProgressPhase::Exporting,
+            1,
+            1,
+            &format!("正在导出 {}...", format_label(&export_format)),
+        ),
+    );
+
+    let posts_count = posts.len();
+
+    match export_format {
+        ExportFormat::MarkdownSingle => MarkdownExportService::new()
+            .export(&posts, &history_entry.output_dir, &export_context, true)
+            .await
+            .map_err(|e| format!("导出Markdown失败: {e}"))?,
+        ExportFormat::MarkdownObsidian => MarkdownExportService::new()
+            .export(&posts, &history_entry.output_dir, &export_context, false)
+            .await
+            .map_err(|e| format!("导出Markdown(Obsidian)失败: {e}"))?,
+        ExportFormat::Html => HtmlExportService::new()
+            .export(&posts, &history_entry.output_dir, &export_context)
+            .await
+            .map_err(|e| format!("导出HTML失败: {e}"))?,
+        ExportFormat::Pdf => PdfExportService::new()
+            .export(&posts, &history_entry.output_dir, &export_context)
+            .await
+            .map_err(|e| format!("导出PDF失败: {e}"))?,
+    }
+
+    let _ = app.emit(
+        "download-progress",
+        ProgressEvent::new(ProgressPhase::Complete, posts_count, posts_count, "导出完成！"),
+    );
+
+    Ok(format!("导出完成！已生成 {}", format_label(&export_format)))
+}
