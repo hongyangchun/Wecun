@@ -3,12 +3,15 @@ use std::sync::atomic::Ordering;
 use tauri::{Emitter, State};
 
 use crate::error::AppError;
-use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase, SourceType};
+use crate::models::{DownloadRequest, ExportFormat, ExportRequest, PostFilter, ProgressEvent, ProgressPhase, SourceType};
 use crate::services::downloader::DownloadService;
 use crate::services::export_html::HtmlExportService;
 use crate::services::export_markdown::MarkdownExportService;
+use crate::services::export_openclaw::OpenClawExportService;
 use crate::services::export_pdf::PdfExportService;
 use crate::services::history::{HistoryEntry, HistoryService};
+use crate::services::profile::models::ProfileResult;
+use crate::services::ProfileService;
 use crate::services::weibo_api::{
     clear_saved_cookie, load_saved_cookie, open_login_window as weibo_open_login, restore_saved_cookie,
 };
@@ -46,6 +49,25 @@ pub async fn start_download(
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("wecun"));
+
+            // Convert PostFilter to string
+            let filter_str = match request.filter {
+                PostFilter::Original => "original".to_string(),
+                PostFilter::All => "all".to_string(),
+            };
+
+            // Convert date range to strings
+            let date_start = request.date_range.start_timestamp.map(|ts| {
+                chrono::DateTime::from_timestamp(ts, 0)
+                    .unwrap_or_else(|| chrono::Utc::now())
+                    .to_rfc3339()
+            });
+            let date_end = request.date_range.end_timestamp.map(|ts| {
+                chrono::DateTime::from_timestamp(ts, 0)
+                    .unwrap_or_else(|| chrono::Utc::now())
+                    .to_rfc3339()
+            });
+
             let _ = HistoryService::new().save(
                 &history_dir,
                 HistoryEntry {
@@ -55,6 +77,13 @@ pub async fn start_download(
                     last_download: chrono::Utc::now().to_rfc3339(),
                     post_count: count,
                     source_type: Some(request.source_type.clone()),
+                    filter: Some(filter_str),
+                    include_images: Some(request.include_images),
+                    date_mode: Some("all".to_string()),
+                    date_start,
+                    date_end,
+                    ignore_deleted: Some(request.ignore_deleted),
+                    min_text_length: Some(request.min_text_length),
                 },
             );
             let _ = app.emit(
@@ -152,6 +181,29 @@ pub async fn export_posts(
     );
 
     Ok(format!("导出完成！已生成 {}", format_label(&request.export_format)))
+}
+
+#[tauri::command]
+pub async fn analyze_profile(
+    output_dir: String,
+    _app: tauri::AppHandle,
+) -> Result<ProfileResult, String> {
+    let service = ProfileService::new();
+    service
+        .analyze(&output_dir)
+        .await
+        .map_err(|error| format!("分析失败: {error}"))
+}
+
+#[tauri::command]
+pub async fn export_openclaw(
+    output_dir: String,
+    profile: ProfileResult,
+) -> Result<String, String> {
+    OpenClawExportService::new()
+        .export(&output_dir, &profile)
+        .await
+        .map_err(|error| format!("导出 OpenClaw 失败: {error}"))
 }
 
 fn format_label(fmt: &ExportFormat) -> &'static str {

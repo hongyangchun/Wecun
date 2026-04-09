@@ -18,6 +18,21 @@ pub struct HistoryEntry {
     pub post_count: usize,
     #[serde(default)]
     pub source_type: Option<SourceType>,
+    // 新增字段 - 用于保存完整下载选项
+    #[serde(default)]
+    pub filter: Option<String>,
+    #[serde(default)]
+    pub include_images: Option<bool>,
+    #[serde(default)]
+    pub date_mode: Option<String>,
+    #[serde(default)]
+    pub date_start: Option<String>,
+    #[serde(default)]
+    pub date_end: Option<String>,
+    #[serde(default)]
+    pub ignore_deleted: Option<bool>,
+    #[serde(default)]
+    pub min_text_length: Option<usize>,
 }
 
 pub struct HistoryService;
@@ -120,6 +135,13 @@ mod tests {
             last_download: last_download.to_string(),
             post_count,
             source_type: None,
+            filter: Some("all".to_string()),
+            include_images: Some(true),
+            date_mode: Some("all".to_string()),
+            date_start: None,
+            date_end: None,
+            ignore_deleted: Some(false),
+            min_text_length: Some(0),
         }
     }
 
