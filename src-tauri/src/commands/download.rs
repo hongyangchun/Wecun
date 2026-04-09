@@ -59,14 +59,21 @@ pub async fn start_download(
             // Convert date range to strings
             let date_start = request.date_range.start_timestamp.map(|ts| {
                 chrono::DateTime::from_timestamp(ts, 0)
-                    .unwrap_or_else(|| chrono::Utc::now())
+                    .unwrap_or_else(chrono::Utc::now)
                     .to_rfc3339()
             });
             let date_end = request.date_range.end_timestamp.map(|ts| {
                 chrono::DateTime::from_timestamp(ts, 0)
-                    .unwrap_or_else(|| chrono::Utc::now())
+                    .unwrap_or_else(chrono::Utc::now)
                     .to_rfc3339()
             });
+
+            // Calculate date_mode based on whether date filtering is active
+            let date_mode = if date_start.is_some() || date_end.is_some() {
+                "range".to_string()
+            } else {
+                "all".to_string()
+            };
 
             let _ = HistoryService::new().save(
                 &history_dir,
@@ -79,7 +86,7 @@ pub async fn start_download(
                     source_type: Some(request.source_type.clone()),
                     filter: Some(filter_str),
                     include_images: Some(request.include_images),
-                    date_mode: Some("all".to_string()),
+                    date_mode: Some(date_mode),
                     date_start,
                     date_end,
                     ignore_deleted: Some(request.ignore_deleted),
