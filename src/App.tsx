@@ -6,7 +6,6 @@ import StepOptions from "./components/StepOptions";
 import StepExportSettings from "./components/StepExportSettings";
 import StepProcessing from "./components/StepProcessing";
 import ProfilePanel from "./components/ProfilePanel";
-import HistoryPanel from "./components/HistoryPanel";
 import { WizardProvider, useWizard } from "./state/wizard-context";
 import {
   startDownload,
@@ -17,7 +16,7 @@ import {
   checkForAppUpdate,
   relaunchApp,
   analyzeProfile,
-  exportOpenclaw,
+  exportProfile,
   type AppUpdate,
   type UpdateProgressEvent,
 } from "./lib/tauri-bridge";
@@ -54,7 +53,6 @@ function formatLabel(fmt: ExportFormat): string {
     html: "HTML",
     "md-single": "Markdown",
     "md-obsidian": "Markdown (Obsidian)",
-    pdf: "PDF",
   };
   return labels[fmt];
 }
@@ -200,8 +198,9 @@ function AppShell() {
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
   const [updateToast, setUpdateToast] = useState<UpdateToastState>(INITIAL_UPDATE_TOAST);
   const prefersReducedMotion = usePrefersReducedMotion();
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [profileResult, setProfileResult] = useState<ProfileResult | null>(null);
+  const [profileAuthorName, setProfileAuthorName] = useState<string | null>(null);
+  const [profileOutputDir, setProfileOutputDir] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const canGoNext = useCallback(() => {
@@ -212,14 +211,14 @@ function AppShell() {
     }
     if (state.step === 2) {
       if (state.sourceType === "favorites") return true;
-      if (state.dateMode === "range") {
+      if (state.downloadRange === "range") {
         return !!state.dateStart && !!state.dateEnd;
       }
       return true;
     }
     if (state.step === 3) return !!state.outputDir;
     return true;
-  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir, state.sourceType, state.dateMode, state.dateStart, state.dateEnd]);
+  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir, state.sourceType, state.downloadRange, state.dateStart, state.dateEnd]);
 
   const handleNext = useCallback(async () => {
     if (state.step === 3) {
@@ -237,12 +236,13 @@ function AppShell() {
           cookie: state.cookie,
           filter: state.postFilter,
           includeImages: state.includeImages,
-          dateMode: state.dateMode,
+          downloadRange: state.downloadRange,
           dateStart: state.dateStart,
           dateEnd: state.dateEnd,
           outputDir: state.outputDir,
           ignoreDeleted: state.ignoreDeleted,
           minTextLength: state.minTextLength,
+          limit: state.limit,
           sourceType: state.sourceType,
         }));
 
@@ -302,12 +302,15 @@ function AppShell() {
   const handleAnalyze = useCallback(async () => {
     setIsAnalyzing(true);
     setProfileResult(null);
+    setProfileAuthorName(null);
+    setProfileOutputDir(state.outputDir);
     dispatch({ type: "EXPORT_START" });
     dispatch({ type: "ADD_LOG", message: "正在分析博主画像..." });
 
     try {
       const result = await analyzeProfile(state.outputDir);
       setProfileResult(result);
+      setProfileAuthorName(state.profileUrl.split("/").pop() || "博主");
       dispatch({ type: "DOWNLOAD_COMPLETE" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -315,22 +318,27 @@ function AppShell() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [state.outputDir, dispatch]);
+  }, [state.outputDir, state.profileUrl, dispatch]);
 
   const handleExportOpenclaw = useCallback(async () => {
-    if (!profileResult) return;
+    if (!profileResult) throw new Error("No profile result available");
+    const outputDir = profileOutputDir || state.outputDir;
 
     try {
-      const result = await exportOpenclaw(state.outputDir, profileResult);
-      dispatch({ type: "ADD_LOG", message: result });
+      const result = await exportProfile(outputDir, profileResult);
+      dispatch({ type: "ADD_LOG", message: `已导出画像分析到 ${result}` });
+      return result;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       dispatch({ type: "PROCESS_ERROR", message: msg });
+      throw err;
     }
-  }, [profileResult, state.outputDir, dispatch]);
+  }, [profileResult, profileOutputDir, state.outputDir, dispatch]);
 
   const handleCloseProfile = useCallback(() => {
     setProfileResult(null);
+    setProfileAuthorName(null);
+    setProfileOutputDir(null);
   }, []);
 
   const dismissUpdateToast = useCallback(() => {
@@ -403,44 +411,85 @@ function AppShell() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + Enter: 下一步
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        handleNext();
+        if (canGoNext()) handleNext();
+        return;
       }
-      if (e.key === "Escape" && state.step > 0 && !isProcessing) {
-        e.preventDefault();
-        handleBack();
+
+      // Escape: 上一步或关闭对话框
+      if (e.key === "Escape") {
+        if (profileResult) {
+          e.preventDefault();
+          handleCloseProfile();
+        } else if (state.step > 0 && !isProcessing) {
+          e.preventDefault();
+          handleBack();
+        }
+        return;
+      }
+
+      // Cmd/Ctrl + [: 上一步
+      if ((e.metaKey || e.ctrlKey) && e.key === "[") {
+        if (state.step > 0 && !isProcessing) {
+          e.preventDefault();
+          handleBack();
+        }
+        return;
+      }
+
+      // Cmd/Ctrl + ] : 下一步
+      if ((e.metaKey || e.ctrlKey) && e.key === "]") {
+        if (canGoNext()) {
+          e.preventDefault();
+          handleNext();
+        }
+        return;
+      }
+
+      // Cmd/Ctrl + . : 打开输出目录（仅在下载完成后）
+      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+        if (state.outputDir && (state.processStatus === "done" || state.processStatus === "downloaded")) {
+          e.preventDefault();
+          void handleOpenOutputDir();
+        }
+        return;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNext, handleBack, state.step, isProcessing]);
+  }, [handleNext, handleBack, state.step, isProcessing, canGoNext, state.outputDir, state.processStatus, profileResult, state.isLoggedIn, handleOpenOutputDir, handleCloseProfile]);
 
   useEffect(() => {
     let cancelled = false;
 
-    void checkForAppUpdate()
-      .then((update: AppUpdate | null) => {
-        if (!update || cancelled) return;
+    // Defer update check to allow UI to render first
+    const timer = setTimeout(() => {
+      void checkForAppUpdate()
+        .then((update: AppUpdate | null) => {
+          if (!update || cancelled) return;
 
-        setAvailableUpdate(update);
-        setUpdateToast({
-          status: "available",
-          version: update.version,
-          notes: update.body?.trim() ?? "",
-          downloadedBytes: 0,
-          totalBytes: 0,
-          chunkCount: 0,
-          errorMessage: "",
+          setAvailableUpdate(update);
+          setUpdateToast({
+            status: "available",
+            version: update.version,
+            notes: update.body?.trim() ?? "",
+            downloadedBytes: 0,
+            totalBytes: 0,
+            chunkCount: 0,
+            errorMessage: "",
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // Silently fail update check - not critical for app functionality
         });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        // Silently fail update check - not critical for app functionality
-      });
+    }, 500); // Delay update check by 500ms
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, []);
 
@@ -459,17 +508,9 @@ function AppShell() {
           <h1 className="app-title">微存 <span style={{ fontSize: "0.5em", opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>Wecun</span></h1>
           {state.isLoggedIn && (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setIsHistoryOpen(true)}
-                type="button"
-                style={{ padding: "6px 12px", fontSize: 13 }}
-              >
-                历史
-              </button>
               <span className="auth-badge">
                 <span className="auth-dot" />
-                已登录
+                {state.username ? `@${state.username}` : "已登录"}
               </span>
               {confirmLogout ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -514,7 +555,11 @@ function AppShell() {
           {state.step === 0 && (
             <StepLogin
               isLoggedIn={state.isLoggedIn}
+              isLoggingIn={state.isLoggingIn}
+              username={state.username}
+              usernameFetchFailed={state.usernameFetchFailed}
               restoreError={state.loginError}
+              dispatch={dispatch}
             />
           )}
           {state.step === 1 && (
@@ -532,8 +577,8 @@ function AppShell() {
               onPostFilterChange={(f) => dispatch({ type: "SET_POST_FILTER", filter: f })}
               includeImages={state.includeImages}
               onIncludeImagesChange={(v) => dispatch({ type: "SET_INCLUDE_IMAGES", value: v })}
-              dateMode={state.dateMode}
-              onDateModeChange={(m) => dispatch({ type: "SET_DATE_MODE", mode: m })}
+              downloadRange={state.downloadRange}
+              onDownloadRangeChange={(r) => dispatch({ type: "SET_DOWNLOAD_RANGE", range: r })}
               dateStart={state.dateStart}
               onDateStartChange={(d) => dispatch({ type: "SET_DATE_START", date: d })}
               dateEnd={state.dateEnd}
@@ -558,11 +603,12 @@ function AppShell() {
             <div className="step-footer">
               <div>
                 {state.step > 0 && (
-                  <button className="btn btn-secondary" onClick={handleBack} type="button">
+                  <button className="btn btn-secondary" onClick={handleBack} type="button" title="快捷键: ⌘[ 或 Esc">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
                       <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     上一步
+                    <kbd style={{ fontSize: 10, opacity: 0.5, fontFamily: "var(--font-sans)", marginLeft: 4 }}>⌘[</kbd>
                   </button>
                 )}
               </div>
@@ -571,6 +617,7 @@ function AppShell() {
                 onClick={handleNext}
                 disabled={!canGoNext()}
                 type="button"
+                title="快捷键: ⌘Enter 或 ⌘]"
               >
                 {state.step === 3 ? "开始下载" : (
                   <>
@@ -581,7 +628,7 @@ function AppShell() {
                   </>
                 )}
                 {canGoNext() && (
-                  <kbd style={{ fontSize: 10, opacity: 0.5, fontFamily: "var(--font-sans)", marginLeft: 4 }}>⏎</kbd>
+                  <kbd style={{ fontSize: 10, opacity: 0.5, fontFamily: "var(--font-sans)", marginLeft: 4 }}>⌘↵</kbd>
                 )}
               </button>
             </div>
@@ -589,7 +636,7 @@ function AppShell() {
               <div className="step-hint">
                 {state.step === 0 && "请先登录微博账号"}
                 {state.step === 1 && state.sourceType === "profile" && "请输入有效的微博主页地址"}
-                {state.step === 2 && state.sourceType === "profile" && state.dateMode === "range" && "请选择开始和结束日期"}
+                {state.step === 2 && state.sourceType === "profile" && state.downloadRange === "range" && "请选择开始和结束日期"}
                 {state.step === 3 && "请选择保存目录"}
               </div>
             )}
@@ -611,6 +658,7 @@ function AppShell() {
             onContinueExport={handleContinueExport}
             onOpenOutputDir={handleOpenOutputDir}
             onAnalyze={handleAnalyze}
+            sourceType={state.sourceType}
           />
         )}
 
@@ -619,7 +667,7 @@ function AppShell() {
             <div className="processing-dialog" style={{ maxWidth: 520 }}>
               <ProfilePanel
                 profile={profileResult}
-                authorName={state.profileUrl.split("/").pop() || "博主"}
+                authorName={profileAuthorName || state.profileUrl.split("/").pop() || "博主"}
                 onExportOpenclaw={handleExportOpenclaw}
                 onClose={handleCloseProfile}
               />
@@ -631,14 +679,6 @@ function AppShell() {
           <div style={{ display: "none" }}>100%</div>
         )}
       </div>
-
-      {isHistoryOpen && (
-        <HistoryPanel
-          isOpen={isHistoryOpen}
-          onClose={() => setIsHistoryOpen(false)}
-          onLog={(msg) => dispatch({ type: "ADD_LOG", message: msg })}
-        />
-      )}
     </div>
   );
 }

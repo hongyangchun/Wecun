@@ -1,20 +1,33 @@
-import type { PostFilter, DateMode, ExportFormat, ProgressPhase } from "../types/contracts";
+import type { PostFilter, DownloadRange, ExportFormat, ProgressPhase } from "../types/contracts";
+
+// Get today's date in YYYY-MM-DD format for the default end date
+function getTodayDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export type ProcessStatus = "idle" | "downloading" | "downloaded" | "exporting" | "done" | "cancelled" | "error";
 
 export interface WizardState {
   step: number;
   isLoggedIn: boolean;
+  isLoggingIn: boolean;
   cookie: string;
+  username: string;
+  usernameFetchFailed: boolean;
   loginError?: string;
   profileUrl: string;
   postFilter: PostFilter;
   includeImages: boolean;
-  dateMode: DateMode;
+  downloadRange: DownloadRange;
   dateStart: string;
   dateEnd: string;
   ignoreDeleted: boolean;
   minTextLength: number;
+  limit: number;
   exportFormat: ExportFormat;
   outputDir: string;
   processStatus: ProcessStatus;
@@ -30,16 +43,20 @@ export interface WizardState {
 export const INITIAL_STATE: WizardState = {
   step: 0,
   isLoggedIn: false,
+  isLoggingIn: false,
   cookie: "",
+  username: "",
+  usernameFetchFailed: false,
   loginError: undefined,
   profileUrl: "",
   postFilter: "original",
   includeImages: true,
-  dateMode: "all",
+  downloadRange: "all",
   dateStart: "",
-  dateEnd: "",
+  dateEnd: getTodayDate(),
   ignoreDeleted: true,
   minTextLength: 20,
+  limit: 1000,
   exportFormat: "html",
   outputDir: "",
   processStatus: "idle",
@@ -56,17 +73,21 @@ export type WizardAction =
   | { type: "SET_STEP"; step: number }
   | { type: "NEXT_STEP" }
   | { type: "PREV_STEP" }
-  | { type: "LOGIN_SUCCESS"; cookie: string }
+  | { type: "LOGIN_START" }
+  | { type: "LOGIN_SUCCESS"; cookie: string; username?: string }
+  | { type: "SET_USERNAME"; username: string }
+  | { type: "USERNAME_FETCH_FAILED" }
   | { type: "LOGIN_INVALID"; message: string }
   | { type: "LOGOUT" }
   | { type: "SET_PROFILE_URL"; url: string }
   | { type: "SET_POST_FILTER"; filter: PostFilter }
   | { type: "SET_INCLUDE_IMAGES"; value: boolean }
-  | { type: "SET_DATE_MODE"; mode: DateMode }
+  | { type: "SET_DOWNLOAD_RANGE"; range: DownloadRange }
   | { type: "SET_DATE_START"; date: string }
   | { type: "SET_DATE_END"; date: string }
   | { type: "SET_IGNORE_DELETED"; value: boolean }
   | { type: "SET_MIN_TEXT_LENGTH"; value: number }
+  | { type: "SET_LIMIT"; value: number }
   | { type: "SET_EXPORT_FORMAT"; format: ExportFormat }
   | { type: "SET_OUTPUT_DIR"; dir: string }
   | { type: "SET_SOURCE_TYPE"; sourceType: "profile" | "favorites" }
@@ -103,20 +124,32 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "PREV_STEP":
       return { ...state, step: Math.max(0, state.step - 1) };
 
-    case "LOGIN_SUCCESS":
+    case "LOGIN_START":
+      return { ...state, isLoggingIn: true };
+
+  case "LOGIN_SUCCESS":
       return {
         ...state,
         cookie: action.cookie,
         isLoggedIn: true,
+        isLoggingIn: false,
+        username: action.username ?? state.username,
         loginError: undefined,
         step: state.step === 0 ? 1 : state.step,
       };
+
+  case "SET_USERNAME":
+      return { ...state, username: action.username, usernameFetchFailed: false };
+
+  case "USERNAME_FETCH_FAILED":
+      return { ...state, usernameFetchFailed: true };
 
     case "LOGIN_INVALID":
       return {
         ...state,
         cookie: "",
         isLoggedIn: false,
+        isLoggingIn: false,
         loginError: action.message,
         step: 0,
         processStatus: "error",
@@ -128,6 +161,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         ...state,
         cookie: "",
         isLoggedIn: false,
+        username: "",
+        usernameFetchFailed: false,
         loginError: undefined,
         step: 0,
       };
@@ -141,8 +176,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "SET_INCLUDE_IMAGES":
       return { ...state, includeImages: action.value };
 
-    case "SET_DATE_MODE":
-      return { ...state, dateMode: action.mode };
+    case "SET_DOWNLOAD_RANGE":
+      return { ...state, downloadRange: action.range };
 
     case "SET_DATE_START":
       return { ...state, dateStart: action.date };
@@ -155,6 +190,9 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
 
     case "SET_MIN_TEXT_LENGTH":
       return { ...state, minTextLength: action.value };
+
+    case "SET_LIMIT":
+      return { ...state, limit: action.value };
 
     case "SET_EXPORT_FORMAT":
       return { ...state, exportFormat: action.format };

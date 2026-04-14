@@ -264,13 +264,61 @@ impl DownloadService {
             self.ensure_not_cancelled(state, app)?;
 
             let (posts, total) = match request.source_type {
-                SourceType::Profile => client.fetch_posts_page(&request.uid, page, starttime, endtime).await?,
+                SourceType::Profile => {
+                    // Don't pass starttime/endtime to API - it causes 50 post limit
+                    // We'll filter on the client side instead
+                    eprintln!("[DEBUG] Fetching page {} - date filter will be applied client-side", page);
+                    let (raw_posts, api_total) = client.fetch_posts_page(&request.uid, page, None, None).await?;
+
+                    // Check if all posts on this page are older than start time
+                    // If so, we've gone past the date range and can stop
+                    if let Some(start) = starttime {
+                        let all_older = raw_posts.iter().all(|p| {
+                            let ts = parse_weibo_date_to_timestamp(&p.created_at);
+                            ts > 0 && ts < start
+                        });
+                        if !raw_posts.is_empty() && all_older {
+                            eprintln!("[DEBUG] All posts on page {} are older than start date, stopping", page);
+                            break;
+                        }
+                    }
+
+                    // Filter by date range on the client side
+                    let filtered: Vec<RawPost> = raw_posts.into_iter().filter(|p| {
+                        let ts = parse_weibo_date_to_timestamp(&p.created_at);
+                        if ts == 0 && !p.created_at.is_empty() {
+                            // Warn but don't filter out posts with unparseable dates
+                            self.emit(
+                                app,
+                                ProgressPhase::FetchingPostList,
+                                0,
+                                0,
+                                &format!("⚠️ 警告：无法解析日期格式 \"{}\"", p.created_at),
+                            );
+                        }
+
+                        // Check date range
+                        if let Some(start) = starttime {
+                            if ts < start {
+                                return false;
+                            }
+                        }
+                        if let Some(end) = endtime {
+                            if ts > end {
+                                return false;
+                            }
+                        }
+                        true
+                    }).collect();
+
+                    (filtered, api_total)
+                }
                 SourceType::Favorites => {
                     let (all_fav_posts, _) = client.fetch_favorites_page(page, starttime, endtime).await?;
                     let mut filtered = Vec::new();
                     for p in all_fav_posts {
                         let ts = parse_weibo_date_to_timestamp(&p.created_at);
-                        
+
                         if ts == 0 && !p.created_at.is_empty() {
                             self.emit(
                                 app,
@@ -305,6 +353,7 @@ impl DownloadService {
 
             if total_posts == 0 && total > 0 {
                 total_posts = total;
+                eprintln!("[DEBUG] API returned total={} posts, page_size={}", total, posts.len());
                 state.total_posts.store(total.max(0) as usize, Ordering::Relaxed);
 
                 let page_size = posts.len().max(1);
@@ -317,21 +366,26 @@ impl DownloadService {
             }
 
             if posts.is_empty() {
-                if matches!(request.source_type, SourceType::Favorites) {
-                    empty_pages_count += 1;
-                    if empty_pages_count > 10 { // Stop after 10 empty pages for favorites with date filter
-                        break;
-                    }
-                    page += 1;
-                    continue;
+                empty_pages_count += 1;
+                // Allow more empty pages when date range is specified (API may have gaps)
+                let max_empty_pages = if starttime.is_some() || endtime.is_some() {
+                    50  // More tolerance for date-filtered queries - we might skip many pages
+                } else {
+                    3   // Fewer empty pages for normal queries
+                };
+                if empty_pages_count > max_empty_pages {
+                    break;
                 }
-                break;
+                page += 1;
+                continue;
             }
             empty_pages_count = 0;
 
             let new_posts: Vec<RawPost> = posts
                 .into_iter()
                 .filter(|post| !existing_ids.contains(&post.mblogid))
+                // Filter out deleted posts if ignore_deleted is true
+                .filter(|post| !(request.ignore_deleted && post.user.is_none()))
                 .collect();
 
             all_raw_posts.extend(new_posts);

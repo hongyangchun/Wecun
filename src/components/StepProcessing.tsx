@@ -17,12 +17,24 @@ interface StepProcessingProps {
   onExport: (format: ExportFormat) => void;
   onContinueExport: () => void;
   onOpenOutputDir: () => void;
+  onAnalyze: () => void;
+  sourceType: "profile" | "favorites";
 }
 
 function friendlyError(msg: string): string {
   if (msg.includes("403") || msg.includes("Forbidden")) return "登录已失效，请重新登录后再试";
-  if (msg.includes("404") || msg.includes("not found")) return "未找到该用户，请检查链接是否正确";
+  // Only transform "not found" errors from download/user lookup phase
+  // Export phase errors (导出PDF失败、导出Markdown失败、导出HTML失败) should pass through unchanged
+  if (
+    (msg.includes("404") || msg.includes("not found")) &&
+    !msg.includes("导出") && !msg.includes("导出") &&
+    !msg.includes("缓存") && !msg.includes("读取")
+  ) {
+    return "未找到该用户，请检查链接是否正确";
+  }
   if (msg.includes("网络") || msg.includes("Network")) return "网络连接失败，请检查网络后重试";
+  if (msg.includes("找不到缓存文件")) return msg;
+  if (msg.includes("没有可导出的微博数据")) return msg;
   return msg;
 }
 
@@ -39,14 +51,15 @@ export default function StepProcessing({
   onExport,
   onContinueExport,
   onOpenOutputDir,
+  onAnalyze,
+  sourceType,
 }: StepProcessingProps) {
   const [showDonation, setShowDonation] = useState(false);
 
   const exportActions: Array<{ format: ExportFormat; label: string; desc: string }> = [
     { format: "html", label: "HTML", desc: "浏览器查看" },
-    { format: "md-single", label: "Markdown", desc: "单文件备份" },
-    { format: "md-obsidian", label: "Obsidian", desc: "带 frontmatter" },
-    { format: "pdf", label: "PDF", desc: "精美排版" },
+    { format: "md-single", label: "Markdown", desc: "单文件" },
+    { format: "md-obsidian", label: "Markdown", desc: "分文件+Obsidian" },
   ];
 
   const isRiskWarning = logs.slice(-10).some((log) =>
@@ -160,7 +173,7 @@ export default function StepProcessing({
               </div>
             )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
               {exportActions.map((action) => (
                 <button
                   key={action.format}
@@ -182,11 +195,35 @@ export default function StepProcessing({
                   <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>{action.desc}</span>
                 </button>
               ))}
+              <button
+                key="analyze"
+                className="btn btn-outline-accent"
+                type="button"
+                onClick={() => onAnalyze()}
+                disabled={sourceType === "favorites"}
+                style={{
+                  width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    textAlign: "center",
+                    padding: "12px 8px",
+                    height: "auto",
+                    gap: 4,
+                    opacity: sourceType === "favorites" ? 0.5 : 1,
+                    cursor: sourceType === "favorites" ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-accent)" }}>🔍 画像分析</span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>
+                    {sourceType === "favorites" ? "仅博主模式" : "查看数据报告"}
+                  </span>
+                </button>
             </div>
 
             {renderLog()}
 
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop: 8 }}>
               <button className="btn btn-secondary" style={{ width: "100%" }} onClick={onReset} type="button">
                 返回
               </button>

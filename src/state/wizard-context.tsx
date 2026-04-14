@@ -9,8 +9,8 @@ import {
   onProgress,
   onCookieReceived,
   onLoginInvalid,
-  hasSavedCookie,
-  loadSavedCookie,
+  getSavedCookie,
+  getCurrentUserInfo,
 } from "../lib/tauri-bridge";
 
 interface WizardContextValue {
@@ -47,8 +47,21 @@ export function WizardProvider({ children }: WizardProviderProps) {
   }, []);
 
   useEffect(() => {
-    const fn = onCookieReceived((cookie) => {
+    const fn = onCookieReceived(async (cookie) => {
       dispatch({ type: "LOGIN_SUCCESS", cookie });
+      // Fetch username after successful login
+      try {
+        const username = await getCurrentUserInfo();
+        if (username) {
+          dispatch({ type: "SET_USERNAME", username });
+        } else {
+          // No username returned - might indicate cookie not fully validated yet
+          dispatch({ type: "USERNAME_FETCH_FAILED" });
+        }
+      } catch {
+        // Username fetch failed - might indicate cookie validation issue
+        dispatch({ type: "USERNAME_FETCH_FAILED" });
+      }
     });
     return () => { fn.then((u) => u()); };
   }, []);
@@ -60,17 +73,32 @@ export function WizardProvider({ children }: WizardProviderProps) {
     return () => { fn.then((u) => u()); };
   }, []);
 
+  // Load saved cookie on mount - single call instead of hasSavedCookie + loadSavedCookie
   useEffect(() => {
     let cancelled = false;
-    void hasSavedCookie().then((has) => {
-      if (!has || cancelled) return;
-      void loadSavedCookie()
-        .then((c) => {
-          if (!cancelled) dispatch({ type: "LOGIN_SUCCESS", cookie: c });
-        })
-        .catch(() => {});
-    });
-    return () => { cancelled = true; };
+    // Use setTimeout to defer loading and allow UI to render first
+    const timer = setTimeout(() => {
+      void getSavedCookie().then(async (cookie) => {
+        if (!cancelled && cookie) {
+          dispatch({ type: "LOGIN_SUCCESS", cookie });
+          // Fetch username after restoring cookie
+          try {
+            const username = await getCurrentUserInfo();
+            if (username && !cancelled) {
+              dispatch({ type: "SET_USERNAME", username });
+            } else {
+              if (!cancelled) dispatch({ type: "USERNAME_FETCH_FAILED" });
+            }
+          } catch {
+            if (!cancelled) dispatch({ type: "USERNAME_FETCH_FAILED" });
+          }
+        }
+      });
+    }, 100); // Small delay to let UI to render first
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -82,7 +110,7 @@ export function WizardProvider({ children }: WizardProviderProps) {
         const s = JSON.parse(raw);
         if (s.postFilter) dispatch({ type: "SET_POST_FILTER", filter: s.postFilter });
         if (s.includeImages !== undefined) dispatch({ type: "SET_INCLUDE_IMAGES", value: s.includeImages });
-        if (s.dateMode) dispatch({ type: "SET_DATE_MODE", mode: s.dateMode });
+        if (s.downloadRange) dispatch({ type: "SET_DOWNLOAD_RANGE", range: s.downloadRange });
         if (s.ignoreDeleted !== undefined) dispatch({ type: "SET_IGNORE_DELETED", value: s.ignoreDeleted });
         if (s.minTextLength !== undefined) dispatch({ type: "SET_MIN_TEXT_LENGTH", value: s.minTextLength });
       }
@@ -96,14 +124,14 @@ export function WizardProvider({ children }: WizardProviderProps) {
       localStorage.setItem("weibo-dl-settings", JSON.stringify({
         postFilter: state.postFilter,
         includeImages: state.includeImages,
-        dateMode: state.dateMode,
+        downloadRange: state.downloadRange,
         ignoreDeleted: state.ignoreDeleted,
         minTextLength: state.minTextLength,
       }));
     } catch {
       void 0;
     }
-  }, [state.postFilter, state.includeImages, state.dateMode, state.ignoreDeleted, state.minTextLength]);
+  }, [state.postFilter, state.includeImages, state.downloadRange, state.ignoreDeleted, state.minTextLength]);
 
   return (
     <WizardContext.Provider value={{ state, dispatch }}>

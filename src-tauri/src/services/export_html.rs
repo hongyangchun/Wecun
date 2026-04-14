@@ -5,7 +5,7 @@ use tokio::fs;
 
 use crate::error::AppError;
 use crate::models::{ExportContext, WeiboPost};
-use crate::services::file_naming::sanitize_filename;
+use crate::services::file_naming::{format_date_range_for_filename, unified_export_filename};
 
 // Pre-computed sets for ammonia configuration
 fn get_allowed_tags() -> HashSet<&'static str> {
@@ -41,17 +41,18 @@ impl HtmlExportService {
         let output_dir = output_dir.as_ref();
         fs::create_dir_all(output_dir).await.map_err(AppError::Io)?;
 
-        let author_name = posts
-            .first()
-            .map(|p| p.author.as_str())
-            .unwrap_or("微博用户");
+        // For favorites, use "我的收藏" as author name; otherwise use first post's author
+        let author_name = if export_context.type_label == "收藏微博" {
+            "我的收藏"
+        } else {
+            posts.first()
+                .map(|p| p.author.as_str())
+                .unwrap_or("微博用户")
+        };
 
         let html = self.render(posts, author_name, export_context);
-        let filename = format!(
-            "{}-{}.html",
-            sanitize_filename(&export_context.type_label),
-            sanitize_filename(&export_context.date_range_label)
-        );
+        let date_part = format_date_range_for_filename(&export_context.date_range_label);
+        let filename = unified_export_filename(author_name, &export_context.type_label, &date_part, "html");
         let dest = output_dir.join(filename);
         fs::write(&dest, html).await.map_err(AppError::Io)?;
         Ok(())

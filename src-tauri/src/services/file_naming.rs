@@ -66,6 +66,26 @@ pub fn markdown_export_filename(type_label: &str, date_range_label: &str) -> Str
     )
 }
 
+/// Generate unified export filename with author name
+/// Format: "AuthorName_Type-StartDate-EndDate.ext"
+pub fn unified_export_filename(author_name: &str, type_label: &str, date_range_label: &str, extension: &str) -> String {
+    let author = sanitize_filename(author_name);
+    let type_part = sanitize_filename(type_label);
+    let date_part = sanitize_filename(date_range_label);
+    format!("{}_{}_{}.{}", author, type_part, date_part, extension)
+}
+
+/// Parse date range label into start-end format
+/// Input: "2024-01-01至2024-12-31" or "全部时间"
+/// Output: "2024-01-01-2024-12-31" or "all-time"
+pub fn format_date_range_for_filename(date_range_label: &str) -> String {
+    if date_range_label == "全部时间" {
+        return "全部时间".to_string();
+    }
+    // Convert "2024-01-01至2024-12-31" to "2024-01-01-2024-12-31"
+    date_range_label.replace("至", "-")
+}
+
 pub fn parse_date_prefix(created_at: &str) -> String {
     if created_at.len() >= 10 && created_at.chars().nth(4) == Some('-') {
         return created_at[..10].to_string();

@@ -16,11 +16,9 @@ pub enum ExportFormat {
     MarkdownSingle,
     #[serde(rename = "md-obsidian")]
     MarkdownObsidian,
-    #[serde(rename = "pdf")]
-    Pdf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceType {
     Profile,
@@ -45,10 +43,16 @@ pub struct DownloadRequest {
     pub ignore_deleted: bool,
     #[serde(default = "default_min_text_length")]
     pub min_text_length: usize,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
 }
 
 fn default_min_text_length() -> usize {
     20
+}
+
+fn default_limit() -> usize {
+    1000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

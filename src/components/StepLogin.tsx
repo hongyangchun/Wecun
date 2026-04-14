@@ -1,16 +1,23 @@
 import { useState } from "react";
 import { openLoginWindow } from "../lib/tauri-bridge";
+import type { Dispatch } from "react";
+import type { WizardAction } from "../state/wizard-reducer";
 
 interface StepLoginProps {
   isLoggedIn: boolean;
+  isLoggingIn: boolean;
+  username: string;
+  usernameFetchFailed: boolean;
   restoreError?: string;
+  dispatch: Dispatch<WizardAction>;
 }
 
-export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) {
+export default function StepLogin({ isLoggedIn, isLoggingIn, username, usernameFetchFailed, restoreError, dispatch }: StepLoginProps) {
   const [isOpening, setIsOpening] = useState(false);
 
   const handleLogin = async () => {
     setIsOpening(true);
+    dispatch({ type: "LOGIN_START" });
     try {
       await openLoginWindow();
     } catch {
@@ -30,8 +37,13 @@ export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) 
         </div>
         <h2 className="processing-title">已登录</h2>
         <p className="form-hint" style={{ textAlign: "center" }}>
-          微博账号已就绪，点击下方「下一步」继续
+          {username ? `@${username}` : "微博账号已就绪"}，点击下方「下一步」继续
         </p>
+        {usernameFetchFailed && (
+          <p style={{ marginTop: 12, fontSize: 12, color: "var(--color-warning)", textAlign: "center" }}>
+            ⚠️ 无法获取账号信息，登录状态可能尚未完全生效。建议稍等片刻后再进行下载操作。
+          </p>
+        )}
       </div>
     );
   }
@@ -53,10 +65,10 @@ export default function StepLogin({ isLoggedIn, restoreError }: StepLoginProps) 
         className="btn btn-primary"
         style={{ marginTop: 32, minWidth: 160 }}
         onClick={handleLogin}
-        disabled={isOpening}
+        disabled={isOpening || isLoggingIn}
         type="button"
       >
-        {isOpening ? "正在打开..." : "打开登录页面"}
+        {isLoggingIn ? "登录中，请在窗口中扫码..." : isOpening ? "正在打开..." : "打开登录页面"}
       </button>
 
       <div style={{ marginTop: 24, padding: "12px", background: "var(--color-bg-inset)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)", textAlign: "left" }}>

@@ -63,12 +63,13 @@ export interface FormValues {
   cookie: string;
   filter: "original" | "all";
   includeImages: boolean;
-  dateMode: "all" | "range";
+  downloadRange: "all" | "range" | "limit";
   dateStart: string;
   dateEnd: string;
   outputDir: string;
   ignoreDeleted: boolean;
   minTextLength: number;
+  limit: number;
   sourceType: "profile" | "favorites";
 }
 
@@ -79,12 +80,13 @@ export function buildDownloadRequest(values: FormValues): DownloadRequest {
     filter: values.filter,
     include_images: values.includeImages,
     date_range: {
-      start_timestamp: values.dateMode === "range" ? dateToStartTimestamp(values.dateStart) : null,
-      end_timestamp: values.dateMode === "range" ? dateToEndTimestamp(values.dateEnd) : null,
+      start_timestamp: values.downloadRange === "range" ? dateToStartTimestamp(values.dateStart) : null,
+      end_timestamp: values.downloadRange === "range" ? dateToEndTimestamp(values.dateEnd) : null,
     },
     output_dir: values.outputDir,
     ignore_deleted: values.ignoreDeleted,
     min_text_length: values.minTextLength,
+    limit: values.limit,
     source_type: values.sourceType,
   };
 }

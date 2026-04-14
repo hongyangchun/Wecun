@@ -90,12 +90,13 @@ describe("validation utilities", () => {
           cookie: " SUB=cookie; ",
           filter: "original",
           includeImages: true,
-          dateMode: "range",
+          downloadRange: "range",
           dateStart: "2024-01-01",
           dateEnd: "2024-01-31",
           outputDir: "/tmp/weibo",
           ignoreDeleted: true,
           minTextLength: 20,
+          limit: 1000,
           sourceType: "profile",
         }),
       ).toEqual({
@@ -110,6 +111,7 @@ describe("validation utilities", () => {
         output_dir: "/tmp/weibo",
         ignore_deleted: true,
         min_text_length: 20,
+        limit: 1000,
         source_type: "profile",
       });
     });
@@ -121,12 +123,13 @@ describe("validation utilities", () => {
           cookie: "SUB=cookie;",
           filter: "all",
           includeImages: false,
-          dateMode: "all",
+          downloadRange: "all",
           dateStart: "2024-01-01",
           dateEnd: "2024-01-31",
           outputDir: "/tmp/weibo",
           ignoreDeleted: false,
           minTextLength: 0,
+          limit: 1000,
           sourceType: "profile",
         }),
       ).toEqual({
@@ -141,6 +144,7 @@ describe("validation utilities", () => {
         output_dir: "/tmp/weibo",
         ignore_deleted: false,
         min_text_length: 0,
+        limit: 1000,
         source_type: "profile",
       });
     });

@@ -1,6 +1,6 @@
 export type PostFilter = "original" | "all";
-export type DateMode = "all" | "range";
-export type ExportFormat = "md-single" | "md-obsidian" | "html" | "pdf";
+export type DownloadRange = "all" | "range" | "limit";
+export type ExportFormat = "md-single" | "md-obsidian" | "html";
 
 export interface DownloadRequest {
   uid: string;
@@ -14,6 +14,7 @@ export interface DownloadRequest {
   output_dir: string;
   ignore_deleted: boolean;
   min_text_length: number;
+  limit: number;
   source_type: "profile" | "favorites";
 }
 
@@ -93,8 +94,39 @@ export interface DeepProfile {
   personality: PersonalityAnalysis;
   interests: InterestAnalysis;
   values: ValueAnalysis;
-  contentStyle: ContentStyleAnalysis;
+  keywords: KeywordAnalysis;
   sentiment: AiSentimentAnalysis;
+  interestingInsights?: InterestingInsights;
+}
+
+export interface InterestingInsights {
+  contradictions: Contradiction[];
+  growthArc?: GrowthArc;
+  socialRoles?: SocialRoles;
+  hiddenPatterns: string[];
+}
+
+export interface Contradiction {
+  what: string;
+  evidence: string[];
+}
+
+export interface GrowthArc {
+  then: TimePeriodState;
+  now: TimePeriodState;
+  narrative: string;
+}
+
+export interface TimePeriodState {
+  period: string;
+  keywords: string[];
+  typicalPost?: string;
+}
+
+export interface SocialRoles {
+  inFriendCircle: string;
+  inComments: string;
+  inCrisis: string;
 }
 
 export interface PersonalInfo {
@@ -130,11 +162,17 @@ export interface ValueAnalysis {
   attitudeTowardLife: string;
 }
 
-export interface ContentStyleAnalysis {
-  writingStyle: string;
-  commonTopics: string[];
-  emotionalTone: string;
-  expressionHabits: string;
+export interface TopicClusters {
+  work: string[];
+  life: string[];
+  entertainment: string[];
+  opinion: string[];
+  emotion: string[];
+}
+
+export interface KeywordAnalysis {
+  topKeywords: string[];
+  topicClusters: TopicClusters;
 }
 
 export interface AiSentimentAnalysis {
@@ -142,23 +180,6 @@ export interface AiSentimentAnalysis {
   emotionalStability: string;
   emotionalTriggers: string[];
   happinessIndex: number;
-}
-
-export interface HistoryEntry {
-  uid: string;
-  screen_name: string;
-  output_dir: string;
-  last_download: string;
-  post_count: number;
-  source_type?: "profile" | "favorites";
-  // New fields
-  filter?: "original" | "all";
-  include_images?: boolean;
-  date_mode?: "all" | "range";
-  date_start?: string;
-  date_end?: string;
-  ignore_deleted?: boolean;
-  min_text_length?: number;
 }
 
 export type RedownloadMode = "overwrite" | "incremental";

@@ -26,3 +26,9 @@ dist-ssr
 # Signing keys
 .tauri-signing-key
 .superpowers/
+
+# API keys
+src-tauri/.ai-api-key
+
+# WorkBuddy
+.workbuddy/

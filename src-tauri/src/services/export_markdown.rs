@@ -4,7 +4,7 @@ use tokio::fs;
 
 use crate::error::AppError;
 use crate::models::{ExportContext, WeiboPost};
-use crate::services::file_naming::{markdown_export_filename, obsidian_post_filename};
+use crate::services::file_naming::{format_date_range_for_filename, obsidian_post_filename, unified_export_filename};
 use crate::utils::html::html_to_markdown_rich;
 
 pub struct MarkdownExportService;
@@ -25,7 +25,7 @@ impl MarkdownExportService {
         if single {
             self.export_single(posts, output_dir, export_context).await
         } else {
-            self.export_per_post(posts, output_dir).await
+            self.export_per_post(posts, output_dir, export_context).await
         }
     }
 
@@ -55,10 +55,18 @@ impl MarkdownExportService {
         &self,
         posts: &[WeiboPost],
         output_dir: &Path,
+        export_context: &ExportContext,
     ) -> Result<(), AppError> {
         let posts_dir = output_dir.join("obsidian");
         fs::create_dir_all(&posts_dir).await.map_err(AppError::Io)?;
-        let mut index = format!("# {} 的微博目录\n\n", export_author_name(posts));
+
+        // Use different titles for profile vs favorites mode
+        let index_title = if export_context.type_label == "收藏微博" {
+            "收藏微博目录".to_string()
+        } else {
+            format!("{} 的微博目录", export_author_name(posts))
+        };
+        let mut index = format!("# {}\n\n", index_title);
 
         for post in posts {
             let content = self.format_post(post, true);
@@ -91,10 +99,6 @@ impl MarkdownExportService {
         md.push_str(&plain_text);
         md.push_str("\n\n");
 
-        if let Some(region) = &post.region {
-            md.push_str(&format!("> {}\n\n", region));
-        }
-
         if post.is_repost {
             if let Some(repost_user) = &post.repost_user {
                 md.push_str(&format!("> 转发自 @{}\n\n", repost_user));
@@ -104,19 +108,17 @@ impl MarkdownExportService {
         if !post.images.is_empty() {
             md.push_str("### 图片\n\n");
             for (i, img) in post.images.iter().enumerate() {
-                if for_per_post_export {
-                    let img_ref = match img.local_path.as_deref() {
-                        Some(path) => format!("![[../{}]]", path),
-                        None => format!("![[{}]]", img.original_url),
-                    };
-                    md.push_str(&format!("{}\n\n", img_ref));
-                } else {
-                    let img_ref = match img.local_path.as_deref() {
-                        Some(path) => path.to_string(),
-                        None => img.original_url.clone(),
-                    };
-                    md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
-                }
+                let img_ref = match img.local_path.as_deref() {
+                    Some(path) => {
+                        if for_per_post_export {
+                            format!("../{}", path)
+                        } else {
+                            path.to_string()
+                        }
+                    }
+                    None => img.original_url.clone(),
+                };
+                md.push_str(&format!("![图片{}]({})\n\n", i + 1, img_ref));
             }
         }
 
@@ -132,11 +134,15 @@ fn export_author_name(posts: &[WeiboPost]) -> String {
         .unwrap_or_else(|| "微博用户".to_string())
 }
 
-fn single_export_filename(_posts: &[WeiboPost], export_context: &ExportContext) -> String {
-    markdown_export_filename(
-        &export_context.type_label,
-        &export_context.date_range_label,
-    )
+fn single_export_filename(posts: &[WeiboPost], export_context: &ExportContext) -> String {
+    // For favorites, use "我的收藏" as author name; otherwise use first post's author
+    let author_name = if export_context.type_label == "收藏微博" {
+        "我的收藏".to_string()
+    } else {
+        export_author_name(posts)
+    };
+    let date_part = format_date_range_for_filename(&export_context.date_range_label);
+    unified_export_filename(&author_name, &export_context.type_label, &date_part, "md")
 }
 
 fn html_to_markdown(html: &str) -> String {

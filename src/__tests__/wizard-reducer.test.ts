@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_STATE, wizardReducer, type WizardAction, type WizardState } from "../state/wizard-reducer";
-import type { DateMode, ExportFormat, PostFilter, ProgressPhase } from "../types/contracts";
+import type { DownloadRange, ExportFormat, PostFilter, ProgressPhase } from "../types/contracts";
 
 function reduce(action: WizardAction, state: WizardState = INITIAL_STATE) {
   return wizardReducer(state, action);
@@ -15,7 +15,7 @@ const setActionCases: Array<{
   { label: "SET_PROFILE_URL", action: { type: "SET_PROFILE_URL", url: "https://weibo.com/u/1" }, key: "profileUrl", expected: "https://weibo.com/u/1" },
   { label: "SET_POST_FILTER", action: { type: "SET_POST_FILTER", filter: "all" satisfies PostFilter }, key: "postFilter", expected: "all" },
   { label: "SET_INCLUDE_IMAGES", action: { type: "SET_INCLUDE_IMAGES", value: false }, key: "includeImages", expected: false },
-  { label: "SET_DATE_MODE", action: { type: "SET_DATE_MODE", mode: "range" satisfies DateMode }, key: "dateMode", expected: "range" },
+  { label: "SET_DOWNLOAD_RANGE", action: { type: "SET_DOWNLOAD_RANGE", range: "range" satisfies DownloadRange }, key: "downloadRange", expected: "range" },
   { label: "SET_DATE_START", action: { type: "SET_DATE_START", date: "2024-01-01" }, key: "dateStart", expected: "2024-01-01" },
   { label: "SET_DATE_END", action: { type: "SET_DATE_END", date: "2024-01-31" }, key: "dateEnd", expected: "2024-01-31" },
   { label: "SET_IGNORE_DELETED", action: { type: "SET_IGNORE_DELETED", value: false }, key: "ignoreDeleted", expected: false },
@@ -234,7 +234,7 @@ describe("wizardReducer", () => {
         profileUrl: "https://weibo.com/u/2166767661",
         postFilter: "all",
         includeImages: false,
-        dateMode: "range",
+        downloadRange: "range",
         dateStart: "2024-01-01",
         dateEnd: "2024-01-31",
         ignoreDeleted: false,

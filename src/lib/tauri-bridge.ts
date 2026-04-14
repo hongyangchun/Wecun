@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import type { DownloadRequest, ExportRequest, ExportFormat, ProgressEvent, ProfileResult, HistoryEntry } from "../types/contracts";
+import type { DownloadRequest, ExportRequest, ProgressEvent, ProfileResult } from "../types/contracts";
 
 export interface UpdateProgressStartedEvent {
   event: "Started";
@@ -60,6 +60,16 @@ export async function hasSavedCookie(): Promise<boolean> {
   return await invoke<boolean>("has_saved_cookie");
 }
 
+/** Returns the saved cookie if exists, empty string otherwise. More efficient than hasSavedCookie + loadSavedCookie. */
+export async function getSavedCookie(): Promise<string> {
+  return await invoke<string>("get_saved_cookie");
+}
+
+/** Get current logged-in user info. Returns screen name or empty string if not logged in. */
+export async function getCurrentUserInfo(): Promise<string> {
+  return await invoke<string>("get_current_user_info");
+}
+
 export async function loadSavedCookie(): Promise<string> {
   return await invoke<string>("load_saved_cookie_cmd");
 }
@@ -100,14 +110,6 @@ export async function relaunchApp(): Promise<void> {
   await relaunch();
 }
 
-export async function listDownloadHistory(): Promise<HistoryEntry[]> {
-  return await invoke<HistoryEntry[]>("list_download_history");
-}
-
-export async function deleteHistoryEntry(uid: string): Promise<void> {
-  await invoke("delete_history_entry", { uid });
-}
-
 export function onProgress(callback: (event: ProgressEvent) => void) {
   return listen<ProgressEvent>("download-progress", (e) => callback(e.payload));
 }
@@ -124,14 +126,6 @@ export async function analyzeProfile(outputDir: string): Promise<ProfileResult> 
   return await invoke<ProfileResult>("analyze_profile", { outputDir });
 }
 
-export async function exportOpenclaw(outputDir: string, profile: ProfileResult): Promise<string> {
-  return await invoke<string>("export_openclaw", { outputDir, profile });
-}
-
-export async function getHistoryEntry(uid: string): Promise<HistoryEntry> {
-  return await invoke<HistoryEntry>("get_history_entry", { uid });
-}
-
-export async function exportFromHistory(uid: string, exportFormat: ExportFormat): Promise<string> {
-  return await invoke<string>("export_from_history", { uid, exportFormat });
+export async function exportProfile(outputDir: string, profile: ProfileResult): Promise<string> {
+  return await invoke<string>("export_profile", { outputDir, profile });
 }
