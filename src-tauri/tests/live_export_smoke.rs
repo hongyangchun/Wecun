@@ -89,7 +89,7 @@ async fn live_session_exports_real_long_post_content() {
         .await
         .expect("markdown export failed");
 
-    let author = cached_posts
+    let _author = cached_posts
         .first()
         .map(|post| post.author.as_str())
         .expect("expected cached posts to include at least one item");
