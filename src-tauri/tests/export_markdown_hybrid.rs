@@ -131,7 +131,16 @@ async fn per_post_export_writes_index_file() {
     let svc = MarkdownExportService::new();
     let posts = vec![linked_post()];
 
-    svc.export_per_post(&posts, &dir).await.unwrap();
+    svc.export_per_post(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     assert!(dir.join("posts").join("index.md").exists());
 }
@@ -142,7 +151,16 @@ async fn per_post_export_uses_parent_relative_image_paths() {
     let svc = MarkdownExportService::new();
     let posts = vec![linked_post()];
 
-    svc.export_per_post(&posts, &dir).await.unwrap();
+    svc.export_per_post(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     let post_file = std::fs::read_dir(dir.join("posts"))
         .unwrap()
@@ -161,7 +179,16 @@ async fn per_post_export_writes_obsidian_frontmatter() {
     let svc = MarkdownExportService::new();
     let posts = vec![linked_post()];
 
-    svc.export_per_post(&posts, &dir).await.unwrap();
+    svc.export_per_post(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     let post_file = std::fs::read_dir(dir.join("posts"))
         .unwrap()
@@ -182,7 +209,16 @@ async fn per_post_export_uses_time_and_text_filename() {
     let svc = MarkdownExportService::new();
     let posts = vec![linked_post()];
 
-    svc.export_per_post(&posts, &dir).await.unwrap();
+    svc.export_per_post(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     let post_file = std::fs::read_dir(dir.join("posts"))
         .unwrap()
