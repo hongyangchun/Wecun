@@ -58,7 +58,16 @@ async fn test_markdown_per_post() {
     std::fs::create_dir_all(&dir).unwrap();
 
     let svc = MarkdownExportService::new();
-    svc.export_per_post(&posts, &dir).await.unwrap();
+    svc.export_per_post(
+        &posts,
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
 
     let posts_dir = dir.join("posts");
     assert!(posts_dir.exists());
