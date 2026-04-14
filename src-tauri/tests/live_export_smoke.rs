@@ -71,6 +71,7 @@ async fn live_session_exports_real_long_post_content() {
         output_dir: output_dir.to_string_lossy().to_string(),
         ignore_deleted: false,
         min_text_length: 0,
+        limit: 1000,
     };
 
     DownloadService::new()
