@@ -106,7 +106,8 @@ jobs:
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Create Release
+      - name: Create Release (without latest.json)
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
@@ -116,7 +117,52 @@ jobs:
             artifacts/macos/*.dmg
             artifacts/macos/*.app.tar.gz
             artifacts/macos/*.app.tar.gz.sig
-            artifacts/macos/latest.json
             artifacts/windows/*.exe
             artifacts/linux/*.deb
             artifacts/linux/*.AppImage
+
+      - name: Generate latest.json for updater
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
+
+          # Read macOS signature
+          SIG_FILE=$(ls artifacts/macos/*.app.tar.gz.sig 2>/dev/null | head -1)
+          MAC_SIG=""
+          if [ -n "$SIG_FILE" ]; then
+            MAC_SIG=$(cat "$SIG_FILE")
+          fi
+
+          # Get macOS tar.gz filename
+          MAC_TAR=$(ls artifacts/macos/*.app.tar.gz 2>/dev/null | head -1 | xargs basename)
+
+          cat > latest.json <<EOF
+          {
+            "version": "v${VERSION}",
+            "notes": "See the release notes at https://github.com/${REPO}/releases/tag/v${VERSION}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-universal": {
+                "signature": "${MAC_SIG}",
+                "url": "${BASE_URL}/${MAC_TAR}"
+              },
+              "darwin-aarch64": {
+                "signature": "${MAC_SIG}",
+                "url": "${BASE_URL}/${MAC_TAR}"
+              },
+              "darwin-x86_64": {
+                "signature": "${MAC_SIG}",
+                "url": "${BASE_URL}/${MAC_TAR}"
+              }
+            }
+          }
+          EOF
+          echo "Generated latest.json:"
+          cat latest.json
+
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: latest.json
