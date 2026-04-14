@@ -1,6 +1,6 @@
 use wecun_lib::models::{ExportContext, WeiboImage, WeiboPost};
 use wecun_lib::services::export_markdown::MarkdownExportService;
-use wecun_lib::services::markdown_export_filename;
+use wecun_lib::services::file_naming::{format_date_range_for_filename, unified_export_filename};
 
 fn sample_posts() -> Vec<WeiboPost> {
     vec![WeiboPost {
@@ -40,7 +40,8 @@ async fn test_markdown_single() {
     .await
     .unwrap();
 
-    let output = dir.join(markdown_export_filename("微博备份", "2024-01-01至2024-01-31"));
+    let date_part = format_date_range_for_filename("2024-01-01至2024-01-31");
+    let output = dir.join(unified_export_filename("测试用户", "微博备份", &date_part, "md"));
     assert!(output.exists());
 
     let content = std::fs::read_to_string(&output).unwrap();
@@ -69,7 +70,7 @@ async fn test_markdown_per_post() {
     .await
     .unwrap();
 
-    let posts_dir = dir.join("posts");
+    let posts_dir = dir.join("obsidian");
     assert!(posts_dir.exists());
 
     let entries: Vec<_> = std::fs::read_dir(&posts_dir).unwrap().collect();

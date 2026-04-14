@@ -1,6 +1,6 @@
 use wecun_lib::models::{ExportContext, WeiboImage, WeiboPost};
 use wecun_lib::services::export_markdown::MarkdownExportService;
-use wecun_lib::services::markdown_export_filename;
+use wecun_lib::services::file_naming::{format_date_range_for_filename, unified_export_filename};
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -51,7 +51,8 @@ fn rich_html_post() -> WeiboPost {
 }
 
 fn single_export_path(dir: &std::path::Path) -> std::path::PathBuf {
-    dir.join(markdown_export_filename("微博备份", "2024-01-01至2024-01-31"))
+    let date_part = format_date_range_for_filename("2024-01-01至2024-01-31");
+    dir.join(unified_export_filename("测试用户", "微博备份", &date_part, "md"))
 }
 
 #[tokio::test]
@@ -142,7 +143,7 @@ async fn per_post_export_writes_index_file() {
     .await
     .unwrap();
 
-    assert!(dir.join("posts").join("index.md").exists());
+    assert!(dir.join("obsidian").join("index.md").exists());
 }
 
 #[tokio::test]
@@ -162,7 +163,7 @@ async fn per_post_export_uses_parent_relative_image_paths() {
     .await
     .unwrap();
 
-    let post_file = std::fs::read_dir(dir.join("posts"))
+    let post_file = std::fs::read_dir(dir.join("obsidian"))
         .unwrap()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
@@ -190,7 +191,7 @@ async fn per_post_export_writes_obsidian_frontmatter() {
     .await
     .unwrap();
 
-    let post_file = std::fs::read_dir(dir.join("posts"))
+    let post_file = std::fs::read_dir(dir.join("obsidian"))
         .unwrap()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
@@ -220,7 +221,7 @@ async fn per_post_export_uses_time_and_text_filename() {
     .await
     .unwrap();
 
-    let post_file = std::fs::read_dir(dir.join("posts"))
+    let post_file = std::fs::read_dir(dir.join("obsidian"))
         .unwrap()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())

@@ -12,7 +12,7 @@ pub use downloader::DownloadService;
 pub use export_html::HtmlExportService;
 pub use export_markdown::MarkdownExportService;
 pub use export_profile::ProfileExportService;
-pub use file_naming::{markdown_export_filename, sanitize_filename};
+pub use file_naming::{format_date_range_for_filename, markdown_export_filename, sanitize_filename, unified_export_filename};
 pub use image_store::ImageStoreService;
 pub use profile::ProfileService;
 pub use weibo_api::WeiboApiClient;
