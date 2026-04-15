@@ -70,6 +70,36 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: npm run tauri build -- ${{ matrix.build_args }}
 
+      - name: Rename artifacts with Wecun prefix
+        run: |
+          # Rename macOS files
+          if [ -d "artifacts/macos" ]; then
+            for f in artifacts/macos/dmg/*.dmg; do
+              [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
+            done
+            for f in artifacts/macos/macos/*.app.tar.gz; do
+              [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
+            done
+            for f in artifacts/macos/macos/*.app.tar.gz.sig; do
+              [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
+            done
+          fi
+          # Rename Windows files
+          if [ -d "artifacts/windows" ]; then
+            for f in artifacts/windows/*.exe; do
+              [ -f "$f" ] && mv "$f" "artifacts/windows/Wecun_$(basename $f)"
+            done
+          fi
+          # Rename Linux files
+          if [ -d "artifacts/linux" ]; then
+            for f in artifacts/linux/deb/*.deb; do
+              [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
+            done
+            for f in artifacts/linux/appimage/*.AppImage; do
+              [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
+            done
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: wecun-${{ matrix.artifact_name }}
@@ -114,12 +144,12 @@ jobs:
           name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
           files: |
-            artifacts/macos/dmg/*.dmg
-            artifacts/macos/macos/*.app.tar.gz
-            artifacts/macos/macos/*.app.tar.gz.sig
-            artifacts/windows/*.exe
-            artifacts/linux/deb/*.deb
-            artifacts/linux/appimage/*.AppImage
+            artifacts/macos/Wecun_*.dmg
+            artifacts/macos/Wecun_*.app.tar.gz
+            artifacts/macos/Wecun_*.app.tar.gz.sig
+            artifacts/windows/Wecun_*.exe
+            artifacts/linux/Wecun_*.deb
+            artifacts/linux/Wecun_*.AppImage
 
       - name: Generate latest.json for updater
         run: |
@@ -134,8 +164,8 @@ jobs:
             MAC_SIG=$(cat "$SIG_FILE")
           fi
 
-          # Get macOS tar.gz filename
-          MAC_TAR=$(ls artifacts/macos/macos/*.app.tar.gz 2>/dev/null | head -1 | xargs basename)
+          # Get macOS tar.gz filename (now with Wecun_ prefix)
+          MAC_TAR=$(ls artifacts/macos/Wecun_*.app.tar.gz 2>/dev/null | head -1 | xargs basename)
 
           cat > latest.json <<EOF
           {
