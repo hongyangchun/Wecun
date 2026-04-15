@@ -1,36 +1,136 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-base: oklch(0.14 0.005 250);
-  --color-bg-elevated: oklch(0.17 0.005 250);
-  --color-border: oklch(0.28 0.005 250);
-  --color-border-subtle: oklch(0.22 0.005 250);
-  --color-accent: oklch(0.72 0.15 185);
-  --color-accent-hover: oklch(0.78 0.14 185);
-  --color-text-main: oklch(0.93 0.005 250);
-  --color-text-muted: oklch(0.68 0.01 250);
+  /* 极客风格配色 - 深邃的墨蓝色调 */
+  --color-bg: #08090c;
+  --color-surface: #0f1114;
+  --color-surface-hover: #161820;
+  --color-border: #1e2128;
+  --color-text: #e4e6eb;
+  --color-text-muted: #6b7280;
+  --color-accent: #22d3a7;
+  --color-accent-dim: #22d3a720;
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    background-color: var(--color-bg-base);
-    color: var(--color-text-main);
-    /* App's font stack */
-    font-family: "SF Pro Display", "PingFang SC", -apple-system, system-ui, sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: "Noto Sans SC", "PingFang SC", -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: var(--color-accent);
+    color: var(--color-bg);
+  }
+
+  /* 自定义滚动条 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
   }
 }
 
-/* Premium utility classes */
 @layer components {
-  .glass-panel {
-    background: color-mix(in oklch, var(--color-bg-elevated) 60%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border-subtle);
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background-color: var(--color-accent);
+    color: var(--color-bg);
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.2s ease;
   }
 
-  .glow-text {
-    background: linear-gradient(to right, #fff, var(--color-accent));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+  .btn-primary:hover {
+    background-color: #34e9bf;
+    transform: translateY(-1px);
   }
+
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background-color: transparent;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--color-text-muted);
+    background-color: var(--color-surface);
+  }
+
+  .card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 2rem;
+    transition: all 0.3s ease;
+  }
+
+  .card:hover {
+    border-color: var(--color-accent);
+    background-color: var(--color-surface-hover);
+  }
+
+  .mono {
+    font-family: "Space Mono", "JetBrains Mono", monospace;
+  }
+}
+
+/* 动画 */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.6s ease-out forwards;
+}
+
+.animate-delay-100 { animation-delay: 100ms; }
+.animate-delay-200 { animation-delay: 200ms; }
+.animate-delay-300 { animation-delay: 300ms; }
+.animate-delay-400 { animation-delay: 400ms; }
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
 }
