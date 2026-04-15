@@ -6,21 +6,21 @@ const PLATFORMS = [
     name: 'macOS',
     desc: 'Apple Silicon & Intel',
     format: '.dmg',
-    arch: 'Universal',
+    download: 'https://github.com/hongyangchun/Wecun/releases/download/v1.0.0/_1.0.0_universal.dmg',
   },
   {
     icon: Monitor,
     name: 'Windows',
     desc: 'x64',
     format: '.exe',
-    arch: 'x64',
+    download: 'https://github.com/hongyangchun/Wecun/releases/download/v1.0.0/_1.0.0_x64-setup.exe',
   },
   {
     icon: Globe,
     name: 'Linux',
     desc: 'Ubuntu / Debian',
     format: '.AppImage / .deb',
-    arch: 'x64',
+    download: 'https://github.com/hongyangchun/Wecun/releases/download/v1.0.0/_1.0.0_amd64.AppImage',
   },
 ];
 
@@ -374,10 +374,14 @@ export default function App() {
                 />
                 <div className="font-semibold text-lg mb-1">{platform.name}</div>
                 <div className="text-sm text-[var(--color-text-muted)] mb-4">{platform.desc}</div>
-                <button className="btn-primary w-full justify-center text-sm">
+                <a
+                  href={platform.download}
+                  download
+                  className="btn-primary w-full justify-center text-sm inline-flex"
+                >
                   <Download size={16} />
                   {platform.format.split(' / ')[0]}
-                </button>
+                </a>
               </div>
             ))}
           </div>
