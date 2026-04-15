@@ -9,9 +9,8 @@ pub mod utils;
 
 use commands::{
     analyze_profile, cancel_download, clear_saved_cookie_cmd, export_posts, export_profile, get_current_user_info,
-    get_saved_cookie, has_saved_cookie, load_saved_cookie_cmd, open_login_window, start_download,
+    get_saved_cookie, has_saved_cookie, load_saved_cookie_cmd, open_login_window, set_cookie_cmd, start_download,
 };
-use services::weibo_api::stronghold_password_hash;
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,9 +21,6 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(
-            tauri_plugin_stronghold::Builder::new(stronghold_password_hash).build(),
-        )
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
@@ -45,6 +41,7 @@ pub fn run() {
             get_current_user_info,
             load_saved_cookie_cmd,
             clear_saved_cookie_cmd,
+            set_cookie_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

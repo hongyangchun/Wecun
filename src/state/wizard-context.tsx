@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useRef, useEffect, type Dispatch, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useRef, useEffect, useState, type Dispatch, type ReactNode } from "react";
 import {
   wizardReducer,
   INITIAL_STATE,
@@ -11,11 +11,13 @@ import {
   onLoginInvalid,
   getSavedCookie,
   getCurrentUserInfo,
+  setCookie,
 } from "../lib/tauri-bridge";
 
 interface WizardContextValue {
   state: WizardState;
   dispatch: Dispatch<WizardAction>;
+  initialized: boolean;
 }
 
 const WizardContext = createContext<WizardContextValue | null>(null);
@@ -32,6 +34,7 @@ interface WizardProviderProps {
 
 export function WizardProvider({ children }: WizardProviderProps) {
   const [state, dispatch] = useReducer(wizardReducer, INITIAL_STATE);
+  const [initialized, setInitialized] = useState(false);
   const settingsRef = useRef({ loaded: false });
 
   useEffect(() => {
@@ -73,32 +76,26 @@ export function WizardProvider({ children }: WizardProviderProps) {
     return () => { fn.then((u) => u()); };
   }, []);
 
-  // Load saved cookie on mount - single call instead of hasSavedCookie + loadSavedCookie
+  // Load saved cookie on mount - prefill cookie and silently validate
   useEffect(() => {
-    let cancelled = false;
-    // Use setTimeout to defer loading and allow UI to render first
-    const timer = setTimeout(() => {
-      void getSavedCookie().then(async (cookie) => {
-        if (!cancelled && cookie) {
-          dispatch({ type: "LOGIN_SUCCESS", cookie });
-          // Fetch username after restoring cookie
-          try {
-            const username = await getCurrentUserInfo();
-            if (username && !cancelled) {
-              dispatch({ type: "SET_USERNAME", username });
-            } else {
-              if (!cancelled) dispatch({ type: "USERNAME_FETCH_FAILED" });
-            }
-          } catch {
-            if (!cancelled) dispatch({ type: "USERNAME_FETCH_FAILED" });
+    const loadCookie = async () => {
+      const cookie = await getSavedCookie();
+      if (cookie) {
+        dispatch({ type: "SET_COOKIE", cookie });
+        // Set cookie in backend state first, then validate
+        try {
+          await setCookie(cookie);
+          const username = await getCurrentUserInfo();
+          if (username) {
+            dispatch({ type: "LOGIN_SUCCESS", cookie, username });
           }
+        } catch {
+          // Cookie invalid or expired, user will need to login manually
         }
-      });
-    }, 100); // Small delay to let UI to render first
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+      }
+      setInitialized(true);
     };
+    loadCookie();
   }, []);
 
   useEffect(() => {
@@ -134,7 +131,7 @@ export function WizardProvider({ children }: WizardProviderProps) {
   }, [state.postFilter, state.includeImages, state.downloadRange, state.ignoreDeleted, state.minTextLength]);
 
   return (
-    <WizardContext.Provider value={{ state, dispatch }}>
+    <WizardContext.Provider value={{ state, dispatch, initialized }}>
       {children}
     </WizardContext.Provider>
   );

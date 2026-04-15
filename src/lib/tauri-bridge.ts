@@ -78,6 +78,10 @@ export async function clearSavedCookie(): Promise<void> {
   await invoke("clear_saved_cookie_cmd");
 }
 
+export async function setCookie(cookie: string): Promise<void> {
+  await invoke("set_cookie_cmd", { cookie });
+}
+
 export async function checkForAppUpdate(): Promise<AppUpdate | null> {
   const update = await check();
 

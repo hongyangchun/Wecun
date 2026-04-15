@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use reqwest::StatusCode;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_stronghold::stronghold::Stronghold;
 use tokio::sync::Mutex;
 
 use crate::error::AppError;
@@ -18,11 +17,7 @@ use crate::state::AppState;
 const LOGIN_WINDOW_LABEL: &str = "weibo-login";
 const WEIBO_BASE: &str = "https://weibo.com";
 const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1000);
-const COOKIE_FILE_NAME: &str = "weibo_cookie.dat";
-const STRONGHOLD_FILE_NAME: &str = "cookie_vault.tauri";
-const STRONGHOLD_PASSWORD: &str = "wecun-vault-key";
-const STRONGHOLD_CLIENT_NAME: &[u8] = b"weibo-cookie-client";
-const COOKIE_STORE_KEY: &[u8] = b"weibo-session-cookie";
+const COOKIE_FILE_NAME: &str = "cookie.json";
 
 #[derive(Debug, Clone)]
 struct RetryConfig {
@@ -124,6 +119,54 @@ impl<R: Runtime> WeiboApiClient<R> {
             return Err(AppError::InvalidCookie);
         }
 
+        if !status.is_success() {
+            return Err(AppError::ApiError(format!(
+                "HTTP {status} from {path}: {}",
+                &text[..text.len().min(300)]
+            )));
+        }
+
+        serde_json::from_str(&text)
+            .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", &text[..text.len().min(300)])))
+    }
+
+    /// Send GET request with a specific cookie (doesn't use state cookie).
+    async fn get_json_with_cookie<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        cookie: &str,
+    ) -> Result<T, AppError> {
+        self.throttle().await;
+
+        if cookie.is_empty() {
+            return Err(AppError::ApiError("请先登录".to_string()));
+        }
+
+        let state = self.app.state::<AppState>();
+        let client = state.get_client();
+
+        let mut url = format!("{WEIBO_BASE}{path}");
+        if !query.is_empty() {
+            let params: Vec<String> = query
+                .iter()
+                .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
+                .collect();
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let cookie_owned = cookie.to_string();
+        let (status, text) = self
+            .request_with_retry(path, ProgressPhase::FetchingUserInfo, || {
+                let client = client.clone();
+                let url = url.clone();
+                let cookie = cookie_owned.clone();
+                async move { self.send_request(client, url, cookie).await }
+            })
+            .await?;
+
+        // Don't check auth invalid here since we're validating a cookie
         if !status.is_success() {
             return Err(AppError::ApiError(format!(
                 "HTTP {status} from {path}: {}",
@@ -289,6 +332,57 @@ impl<R: Runtime> WeiboApiClient<R> {
         // Fallback to profile info without uid (works for some accounts)
         let raw: RawUserInfo = self
             .get_json("/ajax/profile/info", &[])
+            .await?;
+        Ok(UserProfile {
+            uid: raw.data.user.id.to_string(),
+            screen_name: raw.data.user.screen_name,
+        })
+    }
+
+    /// Get current logged-in user info with a specific cookie.
+    pub async fn get_current_user_info_with_cookie(&self, cookie: &str) -> Result<UserProfile, AppError> {
+        #[derive(serde::Deserialize)]
+        struct ConfigResponse {
+            data: ConfigData,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ConfigData {
+            #[serde(default)]
+            uid: Option<String>,
+            #[serde(default)]
+            screen_name: Option<String>,
+            #[serde(default)]
+            user: Option<ConfigUser>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ConfigUser {
+            id: Option<i64>,
+            screen_name: Option<String>,
+        }
+
+        match self.get_json_with_cookie::<ConfigResponse>("/ajax/config/info", &[], cookie).await {
+            Ok(resp) => {
+                let uid = resp.data.uid
+                    .or(resp.data.user.as_ref().and_then(|u| u.id.map(|id| id.to_string())))
+                    .unwrap_or_default();
+                let screen_name = resp.data.screen_name
+                    .or(resp.data.user.as_ref().and_then(|u| u.screen_name.clone()))
+                    .unwrap_or_default();
+
+                if !uid.is_empty() && !screen_name.is_empty() {
+                    return Ok(UserProfile { uid, screen_name });
+                }
+            }
+            Err(_) => {
+                // Fall through to profile info endpoint
+            }
+        }
+
+        // Fallback to profile info without uid
+        let raw: RawUserInfo = self
+            .get_json_with_cookie("/ajax/profile/info", &[], cookie)
             .await?;
         Ok(UserProfile {
             uid: raw.data.user.id.to_string(),
@@ -565,102 +659,30 @@ fn retry_delay(config: &RetryConfig, attempt: u32) -> Duration {
         .min(config.max_delay)
 }
 
-fn cookie_dir<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+fn cookie_file_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     app.path()
         .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
+        .unwrap_or_default()
+        .join(COOKIE_FILE_NAME)
 }
 
-fn cookie_file_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
-    cookie_dir(app).join(COOKIE_FILE_NAME)
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CookieData {
+    cookie: String,
 }
 
-fn stronghold_cookie_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
-    cookie_dir(app).join(STRONGHOLD_FILE_NAME)
-}
-
-pub(crate) fn stronghold_password_hash(password: &str) -> Vec<u8> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut output = Vec::with_capacity(32);
-    for index in 0..4u64 {
-        let mut hasher = DefaultHasher::new();
-        password.hash(&mut hasher);
-        index.hash(&mut hasher);
-        output.extend_from_slice(&hasher.finish().to_le_bytes());
-    }
-    output
-}
-
-fn stronghold_key() -> Vec<u8> {
-    stronghold_password_hash(STRONGHOLD_PASSWORD)
-}
-
-fn open_stronghold_for_read<R: Runtime>(app: &AppHandle<R>) -> Option<Stronghold> {
-    Stronghold::new(stronghold_cookie_path(app), stronghold_key()).ok()
-}
-
-fn open_stronghold_for_write<R: Runtime>(app: &AppHandle<R>) -> Option<Stronghold> {
-    let path = stronghold_cookie_path(app);
-    let parent = path.parent()?;
-    fs::create_dir_all(parent).ok()?;
-
-    match Stronghold::new(&path, stronghold_key()) {
-        Ok(stronghold) => Some(stronghold),
-        Err(_) => {
-            let _ = fs::remove_file(&path);
-            Stronghold::new(path, stronghold_key()).ok()
-        }
-    }
-}
-
-fn load_cookie_from_stronghold<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    let stronghold = open_stronghold_for_read(app)?;
-    let client = stronghold.load_client(STRONGHOLD_CLIENT_NAME).ok()?;
-    let value = client.store().get(COOKIE_STORE_KEY).ok().flatten()?;
-    String::from_utf8(value).ok().map(|cookie| cookie.trim().to_string())
-}
-
-fn load_legacy_plaintext_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+pub fn load_saved_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
     let path = cookie_file_path(app);
     if !path.exists() {
         return None;
     }
 
-    fs::read_to_string(path)
-        .ok()
-        .map(|cookie| cookie.trim().to_string())
-}
-
-fn persist_cookie_to_stronghold<R: Runtime>(app: &AppHandle<R>, cookie: &str) -> bool {
-    let Some(stronghold) = open_stronghold_for_write(app) else {
-        return false;
-    };
-
-    let client = stronghold
-        .load_client(STRONGHOLD_CLIENT_NAME)
-        .or_else(|_| stronghold.create_client(STRONGHOLD_CLIENT_NAME));
-
-    let Ok(client) = client else {
-        return false;
-    };
-
-    if client
-        .store()
-        .insert(COOKIE_STORE_KEY.to_vec(), cookie.as_bytes().to_vec(), None)
-        .is_err()
-    {
-        return false;
+    let content = fs::read_to_string(path).ok()?;
+    let data: CookieData = serde_json::from_str(&content).ok()?;
+    if data.cookie.is_empty() {
+        return None;
     }
-
-    stronghold.save().is_ok()
-}
-
-pub fn load_saved_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    load_cookie_from_stronghold(app)
-        .filter(|cookie| !cookie.is_empty())
-        .or_else(|| load_legacy_plaintext_cookie(app).filter(|cookie| !cookie.is_empty()))
+    Some(data.cookie)
 }
 
 pub fn apply_saved_cookie_to_state(state: &AppState, cookie: Option<String>) -> Option<String> {
@@ -682,21 +704,7 @@ pub fn apply_saved_cookie_to_state(state: &AppState, cookie: Option<String>) -> 
 }
 
 pub fn restore_saved_cookie<R: Runtime>(app: &AppHandle<R>, state: &AppState) -> Option<String> {
-    let restored = load_cookie_from_stronghold(app)
-        .filter(|cookie| !cookie.is_empty())
-        .or_else(|| {
-            let legacy_cookie = load_legacy_plaintext_cookie(app)?;
-            if legacy_cookie.is_empty() {
-                return None;
-            }
-
-            if persist_cookie_to_stronghold(app, &legacy_cookie) {
-                let _ = fs::remove_file(cookie_file_path(app));
-            }
-
-            Some(legacy_cookie)
-        });
-
+    let restored = load_saved_cookie(app);
     apply_saved_cookie_to_state(state, restored)
 }
 
@@ -731,13 +739,17 @@ pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool
 }
 
 pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
-    if persist_cookie_to_stronghold(app, cookie) {
-        let _ = fs::remove_file(cookie_file_path(app));
+    let path = cookie_file_path(app);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let data = CookieData { cookie: cookie.to_string() };
+    if let Ok(content) = serde_json::to_string_pretty(&data) {
+        let _ = fs::write(path, content);
     }
 }
 
 pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
-    let _ = fs::remove_file(stronghold_cookie_path(app));
     let _ = fs::remove_file(cookie_file_path(app));
 }
 

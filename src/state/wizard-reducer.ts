@@ -74,6 +74,7 @@ export type WizardAction =
   | { type: "NEXT_STEP" }
   | { type: "PREV_STEP" }
   | { type: "LOGIN_START" }
+  | { type: "SET_COOKIE"; cookie: string }
   | { type: "LOGIN_SUCCESS"; cookie: string; username?: string }
   | { type: "SET_USERNAME"; username: string }
   | { type: "USERNAME_FETCH_FAILED" }
@@ -127,6 +128,9 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "LOGIN_START":
       return { ...state, isLoggingIn: true };
 
+    case "SET_COOKIE":
+      return { ...state, cookie: action.cookie };
+
   case "LOGIN_SUCCESS":
       return {
         ...state,
@@ -161,6 +165,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         ...state,
         cookie: "",
         isLoggedIn: false,
+        isLoggingIn: false,
         username: "",
         usernameFetchFailed: false,
         loginError: undefined,

@@ -1,8 +1,36 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { LogPanel, ProgressRing } from "./ui";
 import { DONATION_CONFIG } from "../lib/app-config";
 import type { ProcessStatus } from "../state/wizard-reducer";
 import type { ExportFormat } from "../types/contracts";
+
+// 复用样式常量 - 避免每次渲染创建新对象
+const riskWarningStyle: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 8,
+  background: "rgba(255, 69, 58, 0.1)",
+  border: "1px solid rgba(255, 69, 58, 0.3)",
+};
+
+const statBoxStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: "var(--radius-md)",
+  background: "var(--color-bg-inset)",
+  marginBottom: 16,
+  border: "1px solid var(--color-border-subtle)",
+};
+
+const exportButtonStyle: React.CSSProperties = {
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "12px 8px",
+  height: "auto",
+  gap: 4,
+};
 
 interface StepProcessingProps {
   processStatus: Exclude<ProcessStatus, "idle">;
@@ -10,7 +38,6 @@ interface StepProcessingProps {
   progress: number;
   current: number;
   total: number;
-  errorMessage?: string;
   logs: string[];
   onStop: () => void;
   onReset: () => void;
@@ -20,34 +47,16 @@ interface StepProcessingProps {
   onOpenOutputDir: () => void;
   onAnalyze: () => void;
   sourceType: "profile" | "favorites";
-  hasDonated: boolean;
-  onMarkAsDonated: () => void;
 }
 
-function friendlyError(msg: string): string {
-  if (msg.includes("403") || msg.includes("Forbidden")) return "登录已过期，请退出重新登录";
-  // Only transform "not found" errors from download/user lookup phase
-  // Export phase errors (导出PDF失败、导出Markdown失败、导出HTML失败) should pass through unchanged
-  if (
-    (msg.includes("404") || msg.includes("not found")) &&
-    !msg.includes("导出") && !msg.includes("导出") &&
-    !msg.includes("缓存") && !msg.includes("读取")
-  ) {
-    return "未找到该用户，请检查链接是否正确";
-  }
-  if (msg.includes("网络") || msg.includes("Network")) return "网络连接失败，请检查网络后重试";
-  if (msg.includes("找不到缓存文件")) return msg;
-  if (msg.includes("没有可导出的微博数据")) return msg;
-  return msg;
-}
 
-export default function StepProcessing({
+
+const StepProcessingComponent = ({
   processStatus,
   phase,
   progress,
   current,
   total,
-  errorMessage,
   logs,
   onStop,
   onReset,
@@ -57,52 +66,23 @@ export default function StepProcessing({
   onOpenOutputDir,
   onAnalyze,
   sourceType,
-  hasDonated,
-  onMarkAsDonated,
-}: StepProcessingProps) {
+}: StepProcessingProps) => {
   const [showDonation, setShowDonation] = useState(false);
-  const [pendingExport, setPendingExport] = useState<(() => void) | null>(null);
+
+  const handleClose = useCallback(() => {
+    setShowDonation(true);
+  }, []);
+
+  const handleDonationClose = useCallback(() => {
+    setShowDonation(false);
+    onReset();
+  }, [onReset]);
 
   const exportActions: Array<{ format: ExportFormat; label: string; desc: string }> = [
     { format: "html", label: "HTML", desc: "浏览器查看" },
     { format: "md-single", label: "Markdown", desc: "单文件" },
     { format: "md-obsidian", label: "Markdown", desc: "分文件+Obsidian" },
   ];
-
-  const handleExportWithDonation = useCallback((format: ExportFormat) => {
-    if (hasDonated) {
-      onExport(format);
-    } else {
-      setPendingExport(() => () => onExport(format));
-      setShowDonation(true);
-    }
-  }, [hasDonated, onExport]);
-
-  const handleAnalyzeWithDonation = useCallback(() => {
-    if (hasDonated) {
-      onAnalyze();
-    } else {
-      setPendingExport(() => () => onAnalyze());
-      setShowDonation(true);
-    }
-  }, [hasDonated, onAnalyze]);
-
-  const handleDonationComplete = useCallback(() => {
-    onMarkAsDonated();
-    setShowDonation(false);
-    if (pendingExport) {
-      pendingExport();
-      setPendingExport(null);
-    }
-  }, [onMarkAsDonated, pendingExport]);
-
-  const handleDonationSkip = useCallback(() => {
-    setShowDonation(false);
-    if (pendingExport) {
-      pendingExport();
-      setPendingExport(null);
-    }
-  }, [pendingExport]);
 
   // 统计最近 10 条日志中疑似风控关键词的出现次数
   const riskKeywordCounts = logs.slice(-10).reduce(
@@ -139,9 +119,13 @@ export default function StepProcessing({
             </div>
 
             {isRiskWarning && (
-              <div style={{ marginTop: 16, padding: "10px 12px", borderRadius: 8, background: "rgba(255, 69, 58, 0.1)", border: "1px solid rgba(255, 69, 58, 0.3)" }}>
+              <div style={riskWarningStyle}>
                 <p className="form-hint" style={{ margin: 0, color: "var(--color-text)", display: "flex", gap: 6 }}>
-                  <span style={{ fontSize: 14 }}>⚠️</span>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true">
+                    <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                    <path d="M8 6V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
+                  </svg>
                   <span>
                     <b>风控预警</b>：检测到接口请求失败或异常，程序正尝试重试。为保护账号安全，若持续报错建议<b>停止下载</b>，明天再试。
                   </span>
@@ -215,13 +199,7 @@ export default function StepProcessing({
             </p>
 
             {total > 0 && (
-              <div style={{
-                padding: "12px 16px",
-                borderRadius: "var(--radius-md)",
-                background: "var(--color-bg-inset)",
-                marginBottom: 16,
-                border: "1px solid var(--color-border-subtle)"
-              }}>
+              <div style={statBoxStyle}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
                   共处理 {total} 条微博
                 </div>
@@ -234,17 +212,8 @@ export default function StepProcessing({
                   key={action.format}
                   className="btn btn-secondary"
                   type="button"
-                  onClick={() => handleExportWithDonation(action.format)}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    textAlign: "center",
-                    padding: "12px 8px",
-                    height: "auto",
-                    gap: 4,
-                  }}
+                  onClick={() => onExport(action.format)}
+                  style={exportButtonStyle}
                 >
                   <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>{action.label}</span>
                   <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>{action.desc}</span>
@@ -254,7 +223,7 @@ export default function StepProcessing({
                 key="analyze"
                 className="btn btn-outline-accent"
                 type="button"
-                onClick={() => handleAnalyzeWithDonation()}
+                onClick={() => onAnalyze()}
                 disabled={sourceType === "favorites"}
                 style={{
                   width: "100%",
@@ -269,7 +238,13 @@ export default function StepProcessing({
                     cursor: sourceType === "favorites" ? "not-allowed" : "pointer",
                   }}
                 >
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-accent)" }}>🔍 画像分析</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-accent)", display: "flex", alignItems: "center", gap: 4 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
+                      <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    画像分析
+                  </span>
                   <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>
                     {sourceType === "favorites" ? "仅博主模式" : "查看数据报告"}
                   </span>
@@ -302,13 +277,7 @@ export default function StepProcessing({
             </p>
 
             {total > 0 && (
-              <div style={{
-                padding: "12px 16px",
-                borderRadius: "var(--radius-md)",
-                background: "var(--color-bg-inset)",
-                marginBottom: 16,
-                border: "1px solid var(--color-border-subtle)"
-              }}>
+              <div style={statBoxStyle}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
                   共处理 {total} 条微博
                 </div>
@@ -325,7 +294,7 @@ export default function StepProcessing({
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={onOpenOutputDir} type="button">
                 打开目录
               </button>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDonation(true)} type="button">
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={handleClose} type="button">
                 关闭
               </button>
               </div>
@@ -345,16 +314,13 @@ export default function StepProcessing({
             </div>
 
             <div className="error-box" style={{ marginBottom: 20 }}>
-              {friendlyError(errorMessage || "")}
+              登录已过期，请重新登录
             </div>
 
             {renderLog()}
 
-            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onReset} type="button">
-                返回
-              </button>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={onGoToLogin} type="button">
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-primary" style={{ width: "100%" }} onClick={onGoToLogin} type="button">
                 重新登录
               </button>
             </div>
@@ -385,11 +351,18 @@ export default function StepProcessing({
         {showDonation && (
           <div className="donation-overlay" role="dialog" aria-modal="true" aria-labelledby="donation-title">
             <div className="donation-card">
-              <button className="donation-close" type="button" onClick={handleDonationSkip} aria-label="关闭">
-                ×
+              <button className="donation-close" type="button" onClick={handleDonationClose} aria-label="关闭">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
               </button>
 
-              <span className="donation-badge">请我喝杯咖啡 ☕</span>
+              <span className="donation-badge">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ verticalAlign: "middle", marginRight: 4 }} aria-hidden="true">
+                  <path d="M17 8h1a4 4 0 1 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                请我喝杯咖啡
+              </span>
 
               <h3 id="donation-title" style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text)", marginBottom: 6 }}>
                 {DONATION_CONFIG.title}
@@ -398,9 +371,14 @@ export default function StepProcessing({
                 {DONATION_CONFIG.subtitle}
               </p>
 
-              {DONATION_CONFIG.qrImagePath && (
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                  <img src={DONATION_CONFIG.qrImagePath} alt="咖啡二维码" className="donation-qr" />
+              {DONATION_CONFIG.qrImages && DONATION_CONFIG.qrImages.length > 0 && (
+                <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 12 }}>
+                  {DONATION_CONFIG.qrImages.map((img) => (
+                    <div key={img.path} style={{ textAlign: "center" }}>
+                      <img src={img.path} alt={img.name} className="donation-qr" />
+                      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>{img.name}</div>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -410,28 +388,24 @@ export default function StepProcessing({
                 </p>
               )}
 
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <div style={{ marginTop: 12 }}>
                 <button
                   className="btn btn-secondary"
-                  style={{ flex: 1 }}
+                  style={{ width: "100%" }}
                   type="button"
-                  onClick={handleDonationSkip}
+                  onClick={handleDonationClose}
                 >
-                  跳过
-                </button>
-                <button
-                  className="btn btn-primary"
-                  style={{ flex: 1 }}
-                  type="button"
-                  onClick={handleDonationComplete}
-                >
-                  已请喝咖啡
+                  关闭
                 </button>
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
-}
+};
+
+// 使用 React.memo 避免不必要的重渲染
+export default memo(StepProcessingComponent);

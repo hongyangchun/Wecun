@@ -98,6 +98,31 @@ function usePrefersReducedMotion() {
   return prefersReducedMotion;
 }
 
+// UpdateToast 样式常量 - 避免每次渲染创建新对象
+const toastContainerStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 16,
+  right: 16,
+  zIndex: 80,
+  width: "min(360px, calc(100vw - 32px))",
+  padding: 16,
+  borderRadius: "var(--radius-lg)",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-bg-elevated)",
+  boxShadow: "0 20px 60px oklch(0 0 0 / 0.16)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+};
+
+const progressBarStyle: React.CSSProperties = {
+  width: "100%",
+  height: 8,
+  borderRadius: 999,
+  background: "var(--color-bg-inset)",
+  overflow: "hidden",
+};
+
 interface UpdateToastProps {
   state: UpdateToastState;
   prefersReducedMotion: boolean;
@@ -129,21 +154,7 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
     <div
       aria-live="polite"
       role="status"
-      style={{
-        position: "fixed",
-        top: 16,
-        right: 16,
-        zIndex: 80,
-        width: "min(360px, calc(100vw - 32px))",
-        padding: 16,
-        borderRadius: "var(--radius-lg)",
-        border: "1px solid var(--color-border)",
-        background: "var(--color-bg-elevated)",
-        boxShadow: "0 20px 60px oklch(0 0 0 / 0.16)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}
+      style={toastContainerStyle}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
@@ -163,7 +174,7 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
             <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>{progressPercent}%</span>
             <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>已接收 {state.chunkCount} 个数据块</span>
           </div>
-          <div style={{ width: "100%", height: 8, borderRadius: 999, background: "var(--color-bg-inset)", overflow: "hidden" }}>
+          <div style={progressBarStyle}>
             <div
               style={{
                 width: `${progressPercent}%`,
@@ -192,7 +203,7 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
 }
 
 function AppShell() {
-  const { state, dispatch } = useWizard();
+  const { state, dispatch, initialized } = useWizard();
   const isProcessing = state.processStatus !== "idle";
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
@@ -202,14 +213,6 @@ function AppShell() {
   const [profileAuthorName, setProfileAuthorName] = useState<string | null>(null);
   const [profileOutputDir, setProfileOutputDir] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [hasDonated, setHasDonated] = useState(() => {
-    return localStorage.getItem("wecun_has_donated") === "true";
-  });
-
-  const markAsDonated = useCallback(() => {
-    setHasDonated(true);
-    localStorage.setItem("wecun_has_donated", "true");
-  }, []);
 
   const canGoNext = useCallback(() => {
     if (state.step === 0) return state.isLoggedIn;
@@ -305,6 +308,7 @@ function AppShell() {
 
   const handleGoToLogin = useCallback(() => {
     dispatch({ type: "LOGOUT" });
+    dispatch({ type: "RESET" });
   }, [dispatch]);
 
   const handleOpenOutputDir = useCallback(async () => {
@@ -507,6 +511,20 @@ function AppShell() {
 
   const showFooter = !isProcessing;
 
+  // Show loading screen during initialization to avoid blank flash
+  if (!initialized) {
+    return (
+      <div className="app-shell">
+        <div className="app-window" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "80vh" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 14, color: "var(--color-text-secondary)", marginBottom: 12 }}>微存</div>
+            <div style={{ width: 32, height: 32, border: "2px solid var(--color-border)", borderTopColor: "var(--color-accent)", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto" }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <UpdateToast
@@ -662,7 +680,6 @@ function AppShell() {
             progress={state.progress}
             current={state.current}
             total={state.total}
-            errorMessage={state.errorMessage}
             logs={state.logs}
             onStop={handleStop}
             onReset={handleReset}
@@ -672,8 +689,6 @@ function AppShell() {
             onOpenOutputDir={handleOpenOutputDir}
             onAnalyze={handleAnalyze}
             sourceType={state.sourceType}
-            hasDonated={hasDonated}
-            onMarkAsDonated={markAsDonated}
           />
         )}
 

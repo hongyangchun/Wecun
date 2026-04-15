@@ -438,8 +438,17 @@ export default function ProfilePanel({ profile, authorName, onExportOpenclaw, on
         textAlign: "center",
         paddingBottom: 8,
         lineHeight: 1.5,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
       }}>
-        ⚠️ 基于微博内容的AI推测分析，仅供参考
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+          <path d="M8 6V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
+        </svg>
+        基于微博内容的AI推测分析，仅供参考
       </div>
     </div>
   );

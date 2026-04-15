@@ -167,18 +167,28 @@ pub fn get_saved_cookie(app: tauri::AppHandle) -> String {
 /// Returns empty string if not logged in or on error.
 #[tauri::command]
 pub async fn get_current_user_info(app: tauri::AppHandle) -> String {
-    use crate::services::weibo_api::WeiboApiClient;
+    use crate::services::weibo_api::{load_saved_cookie, WeiboApiClient};
 
     let client = WeiboApiClient::new(app.clone());
     let state = app.state::<AppState>();
 
-    if state.get_cookie().is_empty() {
+    // Use cookie from state, or fall back to saved cookie file
+    let cookie = if state.get_cookie().is_empty() {
+        load_saved_cookie(&app).unwrap_or_default()
+    } else {
+        state.get_cookie().clone()
+    };
+
+    if cookie.is_empty() {
         return String::new();
     }
 
+    // Set cookie in state for subsequent requests
+    state.set_cookie(cookie.clone());
+
     // Try to get current user info by calling profile info without uid
     // Weibo API should return current user's info when no uid is provided
-    match client.get_current_user_info().await {
+    match client.get_current_user_info_with_cookie(&cookie).await {
         Ok(user) => user.screen_name,
         Err(_) => String::new(),
     }
@@ -195,4 +205,10 @@ pub fn clear_saved_cookie_cmd(app: tauri::AppHandle) {
     let state = app.state::<AppState>();
     state.set_cookie(String::new());
     clear_saved_cookie(&app);
+}
+
+#[tauri::command]
+pub fn set_cookie_cmd(cookie: String, app: tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    state.set_cookie(cookie);
 }
