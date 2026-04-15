@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use tauri::test::{mock_builder, mock_context, noop_assets};
@@ -23,17 +24,28 @@ fn lock_cookie_storage() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn create_app() -> tauri::App<tauri::test::MockRuntime> {
+    let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = std::env::temp_dir().join(format!("wecun_test_{}", test_id));
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let mut context = mock_context(noop_assets());
+    context.config_mut().identifier = format!("com.test.wecun.{}", test_id);
+
     mock_builder()
         .manage(AppState::default())
-        .build(mock_context(noop_assets()))
+        .build(context)
         .expect("failed to build mock app")
 }
 
 fn cookie_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path::PathBuf {
+    // Use app_local_data_dir for tests to ensure isolation
     handle
         .path()
-        .app_data_dir()
+        .app_local_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
 }
 
