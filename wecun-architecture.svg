@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700">
+  <style>
+    text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#059669"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <rect width="960" height="700" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="480" y="30" text-anchor="middle" font-size="18" font-weight="600" fill="#111827">微存 (Wecun) Architecture</text>
+
+  <!-- Layer: User Interface (React) -->
+  <rect x="40" y="55" width="880" height="90" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="55" y="75" font-size="12" font-weight="600" fill="#dc2626">React Frontend (TypeScript)</text>
+
+  <!-- UI Components -->
+  <rect x="60" y="88" width="130" height="45" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="125" y="107" text-anchor="middle" font-size="12" fill="#111827">Wizard Steps</text>
+  <text x="125" y="123" text-anchor="middle" font-size="10" fill="#6b7280">Login → Target → Options</text>
+
+  <rect x="205" y="88" width="130" height="45" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="270" y="107" text-anchor="middle" font-size="12" fill="#111827">Processing UI</text>
+  <text x="270" y="123" text-anchor="middle" font-size="10" fill="#6b7280">Progress, Logs</text>
+
+  <rect x="350" y="88" width="130" height="45" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="415" y="107" text-anchor="middle" font-size="12" fill="#111827">Export Settings</text>
+  <text x="415" y="123" text-anchor="middle" font-size="10" fill="#6b7280">Format selection</text>
+
+  <rect x="495" y="88" width="130" height="45" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="560" y="107" text-anchor="middle" font-size="12" fill="#111827">Profile Panel</text>
+  <text x="560" y="123" text-anchor="middle" font-size="10" fill="#6b7280">AI analysis display</text>
+
+  <rect x="640" y="88" width="130" height="45" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="705" y="107" text-anchor="middle" font-size="12" fill="#111827">State Management</text>
+  <text x="705" y="123" text-anchor="middle" font-size="10" fill="#6b7280">Wizard Context</text>
+
+  <rect x="785" y="88" width="120" height="45" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="845" y="107" text-anchor="middle" font-size="12" fill="#111827">Utilities</text>
+  <text x="845" y="123" text-anchor="middle" font-size="10" fill="#6b7280">Validation, Dialog</text>
+
+  <!-- Layer: Tauri Bridge -->
+  <rect x="40" y="165" width="880" height="50" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="55" y="185" font-size="12" font-weight="600" fill="#2563eb">Tauri Bridge (IPC)</text>
+
+  <rect x="60" y="175" width="840" height="30" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="90" y="195" font-size="11" fill="#111827">invoke() → Commands | Event Listeners ← Progress / Cookie / Login Status</text>
+
+  <!-- Layer: Commands (Rust) -->
+  <rect x="40" y="235" width="880" height="80" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="55" y="255" font-size="12" font-weight="600" fill="#059669">Tauri Commands (Rust)</text>
+
+  <!-- Commands -->
+  <rect x="60" y="268" width="105" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="112" y="290" text-anchor="middle" font-size="11" fill="#111827">start_download</text>
+
+  <rect x="178" y="268" width="105" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="230" y="290" text-anchor="middle" font-size="11" fill="#111827">cancel_download</text>
+
+  <rect x="296" y="268" width="105" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="348" y="290" text-anchor="middle" font-size="11" fill="#111827">export_posts</text>
+
+  <rect x="414" y="268" width="105" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="466" y="290" text-anchor="middle" font-size="11" fill="#111827">analyze_profile</text>
+
+  <rect x="532" y="268" width="105" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="584" y="290" text-anchor="middle" font-size="11" fill="#111827">export_profile</text>
+
+  <rect x="650" y="268" width="105" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="702" y="290" text-anchor="middle" font-size="11" fill="#111827">login_window</text>
+
+  <rect x="768" y="268" width="115" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="825" y="290" text-anchor="middle" font-size="11" fill="#111827">cookie_management</text>
+
+  <!-- Layer: Services (Rust) -->
+  <rect x="40" y="335" width="880" height="120" rx="8" fill="#faf5ff" stroke="#e9d5ff" stroke-width="1.5"/>
+  <text x="55" y="355" font-size="12" font-weight="600" fill="#7c3aed">Service Layer (Rust)</text>
+
+  <!-- Services -->
+  <rect x="60" y="368" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="122" y="390" text-anchor="middle" font-size="11" fill="#111827">weibo_api</text>
+
+  <rect x="198" y="368" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="260" y="390" text-anchor="middle" font-size="11" fill="#111827">downloader</text>
+
+  <rect x="336" y="368" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="398" y="390" text-anchor="middle" font-size="11" fill="#111827">cache</text>
+
+  <rect x="474" y="368" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="536" y="390" text-anchor="middle" font-size="11" fill="#111827">image_store</text>
+
+  <rect x="612" y="368" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="674" y="390" text-anchor="middle" font-size="11" fill="#111827">export_markdown</text>
+
+  <rect x="750" y="368" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="812" y="390" text-anchor="middle" font-size="11" fill="#111827">export_html</text>
+
+  <rect x="60" y="413" width="190" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="155" y="435" text-anchor="middle" font-size="11" fill="#111827">profile/local_analyzer</text>
+
+  <rect x="263" y="413" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="325" y="435" text-anchor="middle" font-size="11" fill="#111827">export_profile</text>
+
+  <rect x="401" y="413" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="463" y="435" text-anchor="middle" font-size="11" fill="#111827">file_naming</text>
+
+  <rect x="539" y="413" width="125" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="601" y="435" text-anchor="middle" font-size="11" fill="#111827">profile/glm_client</text>
+
+  <rect x="677" y="413" width="200" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="777" y="435" text-anchor="middle" font-size="11" fill="#111827">profile/models</text>
+
+  <!-- Layer: External Services -->
+  <rect x="40" y="475" width="400" height="80" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="55" y="495" font-size="12" font-weight="600" fill="#ea580c">External Services</text>
+
+  <rect x="60" y="508" width="160" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="140" y="523" text-anchor="middle" font-size="11" fill="#111827">Weibo API</text>
+  <text x="140" y="538" text-anchor="middle" font-size="10" fill="#6b7280">(AJAX endpoints)</text>
+
+  <rect x="235" y="508" width="160" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="315" y="523" text-anchor="middle" font-size="11" fill="#111827">GLM API</text>
+  <text x="315" y="538" text-anchor="middle" font-size="10" fill="#6b7280">(AI profile analysis)</text>
+
+  <!-- Layer: Data Storage -->
+  <rect x="480" y="475" width="440" height="80" rx="8" fill="#f0fdfa" stroke="#ccfbf1" stroke-width="1.5"/>
+  <text x="495" y="495" font-size="12" font-weight="600" fill="#0d9488">Data Storage</text>
+
+  <!-- Database/Files -->
+  <path d="M520 508 L520 543 A20 6 0 0 0 560 543 L560 508 A20 6 0 0 0 520 508" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <ellipse cx="540" cy="508" rx="20" ry="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="540" y="525" text-anchor="middle" font-size="10" fill="#111827">Cookie</text>
+  <text x="540" y="538" text-anchor="middle" font-size="10" fill="#111827">Store</text>
+
+  <path d="M595 508 L595 543 A20 6 0 0 0 635 543 L635 508 A20 6 0 0 0 595 508" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <ellipse cx="615" cy="508" rx="20" ry="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="615" y="525" text-anchor="middle" font-size="10" fill="#111827">Cache</text>
+  <text x="615" y="538" text-anchor="middle" font-size="10" fill="#111827">DB</text>
+
+  <rect x="670" y="508" width="100" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="720" y="523" text-anchor="middle" font-size="11" fill="#111827">Posts/</text>
+  <text x="720" y="538" text-anchor="middle" font-size="10" fill="#6b7280">Export files</text>
+
+  <rect x="785" y="508" width="100" height="35" rx="6" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="835" y="523" text-anchor="middle" font-size="11" fill="#111827">Images/</text>
+  <text x="835" y="538" text-anchor="middle" font-size="10" fill="#6b7280">Downloaded</text>
+
+  <!-- Legend -->
+  <g transform="translate(40, 620)">
+    <line x1="0" y1="8" x2="30" y2="8" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+    <text x="36" y="12" fill="#6b7280" font-size="12">Command invocation</text>
+    <line x1="150" y1="8" x2="180" y2="8" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+    <text x="186" y="12" fill="#6b7280" font-size="12">Data flow</text>
+    <line x1="270" y1="8" x2="300" y2="8" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+    <text x="306" y="12" fill="#6b7280" font-size="12">API request</text>
+    <line x1="400" y1="8" x2="430" y2="8" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+    <text x="436" y="12" fill="#6b7280" font-size="12">Event notification</text>
+  </g>
+
+  <!-- Vertical arrows (layer to layer) -->
+  <!-- React → Bridge -->
+  <line x1="125" y1="143" x2="125" y2="165" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="480" y1="143" x2="480" y2="165" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <line x1="845" y1="143" x2="845" y2="165" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Bridge → Commands -->
+  <line x1="125" y1="215" x2="125" y2="235" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="480" y1="215" x2="480" y2="235" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <line x1="845" y1="215" x2="845" y2="235" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Commands → Services -->
+  <line x1="125" y1="315" x2="125" y2="335" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <line x1="480" y1="315" x2="480" y2="335" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <line x1="845" y1="315" x2="845" y2="335" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Services → External -->
+  <line x1="122" y1="403" x2="122" y2="475" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <line x1="601" y1="403" x2="601" y2="475" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+
+  <!-- Services → Storage -->
+  <line x1="398" y1="403" x2="398" y2="440" stroke="#059669" stroke-width="1.5"/>
+  <line x1="398" y1="440" x2="540" y2="440" stroke="#059669" stroke-width="1.5"/>
+  <line x1="540" y1="440" x2="540" y2="475" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <line x1="536" y1="403" x2="536" y2="420" stroke="#059669" stroke-width="1.5"/>
+  <line x1="536" y1="420" x2="835" y2="420" stroke="#059669" stroke-width="1.5"/>
+  <line x1="835" y1="420" x2="835" y2="475" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <line x1="720" y1="403" x2="720" y2="475" stroke="#059669" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+</svg>

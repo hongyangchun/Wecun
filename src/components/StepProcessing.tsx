@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { LogPanel, ProgressRing } from "./ui";
 import { DONATION_CONFIG } from "../lib/app-config";
 import type { ProcessStatus } from "../state/wizard-reducer";
@@ -14,15 +14,18 @@ interface StepProcessingProps {
   logs: string[];
   onStop: () => void;
   onReset: () => void;
+  onGoToLogin: () => void;
   onExport: (format: ExportFormat) => void;
   onContinueExport: () => void;
   onOpenOutputDir: () => void;
   onAnalyze: () => void;
   sourceType: "profile" | "favorites";
+  hasDonated: boolean;
+  onMarkAsDonated: () => void;
 }
 
 function friendlyError(msg: string): string {
-  if (msg.includes("403") || msg.includes("Forbidden")) return "登录已失效，请重新登录后再试";
+  if (msg.includes("403") || msg.includes("Forbidden")) return "登录已过期，请退出重新登录";
   // Only transform "not found" errors from download/user lookup phase
   // Export phase errors (导出PDF失败、导出Markdown失败、导出HTML失败) should pass through unchanged
   if (
@@ -48,13 +51,17 @@ export default function StepProcessing({
   logs,
   onStop,
   onReset,
+  onGoToLogin,
   onExport,
   onContinueExport,
   onOpenOutputDir,
   onAnalyze,
   sourceType,
+  hasDonated,
+  onMarkAsDonated,
 }: StepProcessingProps) {
   const [showDonation, setShowDonation] = useState(false);
+  const [pendingExport, setPendingExport] = useState<(() => void) | null>(null);
 
   const exportActions: Array<{ format: ExportFormat; label: string; desc: string }> = [
     { format: "html", label: "HTML", desc: "浏览器查看" },
@@ -62,9 +69,57 @@ export default function StepProcessing({
     { format: "md-obsidian", label: "Markdown", desc: "分文件+Obsidian" },
   ];
 
-  const isRiskWarning = logs.slice(-10).some((log) =>
-    log.includes("重试") || log.includes("网络异常") || log.includes("频繁") || log.includes("拦截") || log.includes("失败")
+  const handleExportWithDonation = useCallback((format: ExportFormat) => {
+    if (hasDonated) {
+      onExport(format);
+    } else {
+      setPendingExport(() => () => onExport(format));
+      setShowDonation(true);
+    }
+  }, [hasDonated, onExport]);
+
+  const handleAnalyzeWithDonation = useCallback(() => {
+    if (hasDonated) {
+      onAnalyze();
+    } else {
+      setPendingExport(() => () => onAnalyze());
+      setShowDonation(true);
+    }
+  }, [hasDonated, onAnalyze]);
+
+  const handleDonationComplete = useCallback(() => {
+    onMarkAsDonated();
+    setShowDonation(false);
+    if (pendingExport) {
+      pendingExport();
+      setPendingExport(null);
+    }
+  }, [onMarkAsDonated, pendingExport]);
+
+  const handleDonationSkip = useCallback(() => {
+    setShowDonation(false);
+    if (pendingExport) {
+      pendingExport();
+      setPendingExport(null);
+    }
+  }, [pendingExport]);
+
+  // 统计最近 10 条日志中疑似风控关键词的出现次数
+  const riskKeywordCounts = logs.slice(-10).reduce(
+    (acc, log) => {
+      if (log.includes("频繁")) acc.frequent++;
+      if (log.includes("拦截")) acc.blocked++;
+      if (log.includes("403") || log.includes("Forbidden")) acc.forbidden++;
+      return acc;
+    },
+    { frequent: 0, blocked: 0, forbidden: 0 }
   );
+
+  // 只有明确检测到微博风控特征时才显示预警：频繁/拦截关键词出现 2 次以上，或检测到 403
+  const isRiskWarning =
+    riskKeywordCounts.frequent >= 2 ||
+    riskKeywordCounts.blocked >= 2 ||
+    riskKeywordCounts.forbidden >= 1;
 
   const renderLog = () =>
     logs.length > 0 ? <LogPanel logs={logs} /> : null;
@@ -179,7 +234,7 @@ export default function StepProcessing({
                   key={action.format}
                   className="btn btn-secondary"
                   type="button"
-                  onClick={() => onExport(action.format)}
+                  onClick={() => handleExportWithDonation(action.format)}
                   style={{
                     width: "100%",
                     display: "flex",
@@ -199,7 +254,7 @@ export default function StepProcessing({
                 key="analyze"
                 className="btn btn-outline-accent"
                 type="button"
-                onClick={() => onAnalyze()}
+                onClick={() => handleAnalyzeWithDonation()}
                 disabled={sourceType === "favorites"}
                 style={{
                   width: "100%",
@@ -295,9 +350,12 @@ export default function StepProcessing({
 
             {renderLog()}
 
-            <div style={{ marginTop: 16 }}>
-              <button className="btn btn-secondary" style={{ width: "100%" }} onClick={onReset} type="button">
-                返回重试
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onReset} type="button">
+                返回
+              </button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={onGoToLogin} type="button">
+                重新登录
               </button>
             </div>
           </div>
@@ -324,14 +382,14 @@ export default function StepProcessing({
           </div>
         )}
 
-        {processStatus === "done" && showDonation && (
+        {showDonation && (
           <div className="donation-overlay" role="dialog" aria-modal="true" aria-labelledby="donation-title">
             <div className="donation-card">
-              <button className="donation-close" type="button" onClick={() => setShowDonation(false)} aria-label="关闭">
+              <button className="donation-close" type="button" onClick={handleDonationSkip} aria-label="关闭">
                 ×
               </button>
 
-              <span className="donation-badge">导出完成</span>
+              <span className="donation-badge">请我喝杯咖啡 ☕</span>
 
               <h3 id="donation-title" style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text)", marginBottom: 6 }}>
                 {DONATION_CONFIG.title}
@@ -342,7 +400,7 @@ export default function StepProcessing({
 
               {DONATION_CONFIG.qrImagePath && (
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                  <img src={DONATION_CONFIG.qrImagePath} alt="打赏二维码" className="donation-qr" />
+                  <img src={DONATION_CONFIG.qrImagePath} alt="咖啡二维码" className="donation-qr" />
                 </div>
               )}
 
@@ -352,17 +410,24 @@ export default function StepProcessing({
                 </p>
               )}
 
-              <button
-                className="btn btn-primary"
-                style={{ width: "100%", marginTop: 12 }}
-                type="button"
-                onClick={() => {
-                  setShowDonation(false);
-                  onReset();
-                }}
-              >
-                我知道了
-              </button>
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  type="button"
+                  onClick={handleDonationSkip}
+                >
+                  跳过
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  type="button"
+                  onClick={handleDonationComplete}
+                >
+                  已请喝咖啡
+                </button>
+              </div>
             </div>
           </div>
         )}

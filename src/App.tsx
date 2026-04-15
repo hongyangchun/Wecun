@@ -202,6 +202,14 @@ function AppShell() {
   const [profileAuthorName, setProfileAuthorName] = useState<string | null>(null);
   const [profileOutputDir, setProfileOutputDir] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [hasDonated, setHasDonated] = useState(() => {
+    return localStorage.getItem("wecun_has_donated") === "true";
+  });
+
+  const markAsDonated = useCallback(() => {
+    setHasDonated(true);
+    localStorage.setItem("wecun_has_donated", "true");
+  }, []);
 
   const canGoNext = useCallback(() => {
     if (state.step === 0) return state.isLoggedIn;
@@ -293,6 +301,10 @@ function AppShell() {
 
   const handleReset = useCallback(() => {
     dispatch({ type: "RESET" });
+  }, [dispatch]);
+
+  const handleGoToLogin = useCallback(() => {
+    dispatch({ type: "LOGOUT" });
   }, [dispatch]);
 
   const handleOpenOutputDir = useCallback(async () => {
@@ -654,11 +666,14 @@ function AppShell() {
             logs={state.logs}
             onStop={handleStop}
             onReset={handleReset}
+            onGoToLogin={handleGoToLogin}
             onExport={handleExport}
             onContinueExport={handleContinueExport}
             onOpenOutputDir={handleOpenOutputDir}
             onAnalyze={handleAnalyze}
             sourceType={state.sourceType}
+            hasDonated={hasDonated}
+            onMarkAsDonated={markAsDonated}
           />
         )}
 

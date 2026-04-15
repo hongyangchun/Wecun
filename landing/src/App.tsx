@@ -6,21 +6,21 @@ const PLATFORMS = [
     name: 'macOS',
     desc: 'Apple Silicon & Intel',
     format: '.dmg',
-    download: 'https://github.com/hongyangchun/Wecun/releases/download/v1.0.0/_1.0.0_universal.dmg',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/_1.0.0_universal.dmg',
   },
   {
     icon: Monitor,
     name: 'Windows',
     desc: 'x64',
     format: '.exe',
-    download: 'https://github.com/hongyangchun/Wecun/releases/download/v1.0.0/_1.0.0_x64-setup.exe',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/_1.0.0_x64-setup.exe',
   },
   {
     icon: Globe,
     name: 'Linux',
     desc: 'Ubuntu / Debian',
     format: '.AppImage / .deb',
-    download: 'https://github.com/hongyangchun/Wecun/releases/download/v1.0.0/_1.0.0_amd64.AppImage',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/_1.0.0_amd64.AppImage',
   },
 ];
 
