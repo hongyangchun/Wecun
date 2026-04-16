@@ -78,6 +78,7 @@ jobs:
         run: npm run tauri build -- ${{ matrix.build_args }}
 
       - name: Rename artifacts with Wecun prefix
+        shell: bash
         run: |
           # Rename macOS files
           if [ -d "artifacts/macos" ]; then
