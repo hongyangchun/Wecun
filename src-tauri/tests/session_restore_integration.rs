@@ -10,16 +10,11 @@ use wecun_lib::state::AppState;
 
 const COOKIE_FILE_NAME: &str = "weibo_cookie.dat";
 
-fn cookie_storage_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
+// Global lock to ensure tests run serially
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-fn lock_cookie_storage() -> std::sync::MutexGuard<'static, ()> {
-    match cookie_storage_lock().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+fn get_test_lock() -> &'static Mutex<()> {
+    TEST_LOCK.get_or_init(|| Mutex::new(()))
 }
 
 fn create_app() -> tauri::App<tauri::test::MockRuntime> {
@@ -47,7 +42,8 @@ fn cleanup_cookie_storage(handle: &tauri::AppHandle<tauri::test::MockRuntime>) {
 
 #[test]
 fn saved_cookie_restores_across_fresh_app_instances() {
-    let _guard = lock_cookie_storage();
+    let _guard = get_test_lock().lock().unwrap();
+    
     let first_app = create_app();
     let first_handle = first_app.handle().clone();
     cleanup_cookie_storage(&first_handle);
@@ -71,7 +67,8 @@ fn saved_cookie_restores_across_fresh_app_instances() {
 
 #[test]
 fn restore_saved_cookie_loads_cookie_into_state() {
-    let _guard = lock_cookie_storage();
+    let _guard = get_test_lock().lock().unwrap();
+    
     let app = create_app();
     let handle = app.handle().clone();
     let state = handle.state::<AppState>();
@@ -93,7 +90,8 @@ fn restore_saved_cookie_loads_cookie_into_state() {
 
 #[test]
 fn clear_saved_cookie_removes_stored_cookie() {
-    let _guard = lock_cookie_storage();
+    let _guard = get_test_lock().lock().unwrap();
+    
     let app = create_app();
     let handle = app.handle().clone();
 
