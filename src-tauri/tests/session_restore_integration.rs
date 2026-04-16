@@ -42,10 +42,10 @@ fn create_app() -> tauri::App<tauri::test::MockRuntime> {
 }
 
 fn cookie_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path::PathBuf {
-    // Use app_local_data_dir for tests to ensure isolation
+    // Use app_data_dir to match the actual implementation
     handle
         .path()
-        .app_local_data_dir()
+        .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
 }
 
