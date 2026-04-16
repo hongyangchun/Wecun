@@ -148,12 +148,12 @@ jobs:
           name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
           files: |
-            artifacts/macos/Wecun_*.dmg
-            artifacts/macos/Wecun_*.app.tar.gz
-            artifacts/macos/Wecun_*.app.tar.gz.sig
-            artifacts/windows/Wecun_*.exe
-            artifacts/linux/Wecun_*.deb
-            artifacts/linux/Wecun_*.AppImage
+            artifacts/macos/dmg/*.dmg
+            artifacts/macos/macos/*.app.tar.gz
+            artifacts/macos/macos/*.app.tar.gz.sig
+            artifacts/windows/*.exe
+            artifacts/linux/deb/*.deb
+            artifacts/linux/appimage/*.AppImage
 
       - name: Generate latest.json for updater
         run: |
@@ -162,14 +162,14 @@ jobs:
           BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
 
           # Read macOS signature
-          SIG_FILE=$(ls artifacts/macos/Wecun_*.app.tar.gz.sig 2>/dev/null | head -1)
+          SIG_FILE=$(ls artifacts/macos/macos/*.sig 2>/dev/null | head -1)
           MAC_SIG=""
           if [ -n "$SIG_FILE" ]; then
             MAC_SIG=$(cat "$SIG_FILE")
           fi
 
           # Get macOS tar.gz filename
-          MAC_TAR=$(ls artifacts/macos/Wecun_*.app.tar.gz 2>/dev/null | head -1 | xargs basename)
+          MAC_TAR=$(ls artifacts/macos/macos/*.app.tar.gz 2>/dev/null | head -1 | xargs basename)
 
           cat > latest.json <<EOF
           {
