@@ -80,7 +80,7 @@ jobs:
       - name: Rename artifacts with Wecun prefix
         shell: bash
         run: |
-          # Rename macOS files
+          # Rename macOS files - move from subdirs to parent dir with Wecun_ prefix
           if [ -d "artifacts/macos" ]; then
             for f in artifacts/macos/dmg/*.dmg; do
               [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
@@ -98,7 +98,7 @@ jobs:
               [ -f "$f" ] && mv "$f" "artifacts/windows/Wecun_$(basename $f)"
             done
           fi
-          # Rename Linux files
+          # Rename Linux files - move from subdirs to parent dir with Wecun_ prefix
           if [ -d "artifacts/linux" ]; then
             for f in artifacts/linux/deb/*.deb; do
               [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
@@ -107,6 +107,9 @@ jobs:
               [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
             done
           fi
+          # List final artifact structure for debugging
+          echo "=== Final artifact structure ==="
+          find artifacts -type f | sort
 
       - uses: actions/upload-artifact@v4
         with:
@@ -165,14 +168,14 @@ jobs:
           REPO="${{ github.repository }}"
           BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
 
-          # Read macOS signature (in macos/macos/ subdir)
-          SIG_FILE=$(ls artifacts/macos/macos/*.app.tar.gz.sig 2>/dev/null | head -1)
+          # Read macOS signature (now in artifacts/macos/ after rename)
+          SIG_FILE=$(ls artifacts/macos/Wecun_*.app.tar.gz.sig 2>/dev/null | head -1)
           MAC_SIG=""
           if [ -n "$SIG_FILE" ]; then
             MAC_SIG=$(cat "$SIG_FILE")
           fi
 
-          # Get macOS tar.gz filename (now with Wecun_ prefix)
+          # Get macOS tar.gz filename
           MAC_TAR=$(ls artifacts/macos/Wecun_*.app.tar.gz 2>/dev/null | head -1 | xargs basename)
 
           cat > latest.json <<EOF
