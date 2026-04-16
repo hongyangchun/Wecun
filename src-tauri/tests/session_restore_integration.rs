@@ -24,16 +24,10 @@ fn lock_cookie_storage() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
-
 fn create_app() -> tauri::App<tauri::test::MockRuntime> {
-    let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let temp_dir = std::env::temp_dir().join(format!("wecun_test_{}", test_id));
-    let _ = fs::remove_dir_all(&temp_dir);
-    let _ = fs::create_dir_all(&temp_dir);
-
     let mut context = mock_context(noop_assets());
-    context.config_mut().identifier = format!("com.test.wecun.{}", test_id);
+    // Use a fixed identifier for all tests to ensure they share the same app_data_dir
+    context.config_mut().identifier = "com.test.wecun".to_string();
 
     mock_builder()
         .manage(AppState::default())
