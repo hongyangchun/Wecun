@@ -49,10 +49,19 @@ fn cookie_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path:
         .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
 }
 
+fn stronghold_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path::PathBuf {
+    // Stronghold uses app_local_data_dir in the actual implementation
+    handle
+        .path()
+        .app_local_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
+}
+
 fn cleanup_cookie_storage(handle: &tauri::AppHandle<tauri::test::MockRuntime>) {
     let dir = cookie_dir(handle);
+    let stronghold_dir = stronghold_dir(handle);
     let _ = fs::remove_file(dir.join(COOKIE_FILE_NAME));
-    let _ = fs::remove_file(dir.join(STRONGHOLD_FILE_NAME));
+    let _ = fs::remove_file(stronghold_dir.join(STRONGHOLD_FILE_NAME));
 }
 
 #[test]
@@ -86,11 +95,13 @@ fn restore_saved_cookie_migrates_plaintext_cookie_to_stronghold() {
     let handle = app.handle().clone();
     let state = handle.state::<AppState>();
     let dir = cookie_dir(&handle);
+    let stronghold_dir = stronghold_dir(&handle);
     let plaintext_path = dir.join(COOKIE_FILE_NAME);
-    let stronghold_path = dir.join(STRONGHOLD_FILE_NAME);
+    let stronghold_path = stronghold_dir.join(STRONGHOLD_FILE_NAME);
 
     cleanup_cookie_storage(&handle);
     fs::create_dir_all(&dir).expect("failed to create cookie dir");
+    fs::create_dir_all(&stronghold_dir).expect("failed to create stronghold dir");
     fs::write(&plaintext_path, "SUB=migrate-me; ALF=1").expect("failed to seed plaintext cookie");
 
     let restored = restore_saved_cookie(&handle, state.inner());
