@@ -1,5 +1,4 @@
 use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use tauri::test::{mock_builder, mock_context, noop_assets};
