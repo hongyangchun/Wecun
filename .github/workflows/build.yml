@@ -33,7 +33,6 @@ jobs:
               src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
               src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
               src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
-              src-tauri/target/universal-apple-darwin/release/bundle/macos/latest.json
           - os: windows-latest
             build_args: "--bundles nsis"
             artifact_name: windows
@@ -77,40 +76,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: npm run tauri build -- ${{ matrix.build_args }}
 
-      - name: Rename artifacts with Wecun prefix
-        shell: bash
-        run: |
-          # Rename macOS files - move from subdirs to parent dir with Wecun_ prefix
-          if [ -d "artifacts/macos" ]; then
-            for f in artifacts/macos/dmg/*.dmg; do
-              [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
-            done
-            for f in artifacts/macos/macos/*.app.tar.gz; do
-              [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
-            done
-            for f in artifacts/macos/macos/*.app.tar.gz.sig; do
-              [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
-            done
-          fi
-          # Rename Windows files
-          if [ -d "artifacts/windows" ]; then
-            for f in artifacts/windows/*.exe; do
-              [ -f "$f" ] && mv "$f" "artifacts/windows/Wecun_$(basename $f)"
-            done
-          fi
-          # Rename Linux files - move from subdirs to parent dir with Wecun_ prefix
-          if [ -d "artifacts/linux" ]; then
-            for f in artifacts/linux/deb/*.deb; do
-              [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
-            done
-            for f in artifacts/linux/appimage/*.AppImage; do
-              [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
-            done
-          fi
-          # List final artifact structure for debugging
-          echo "=== Final artifact structure ==="
-          find artifacts -type f | sort
-
       - uses: actions/upload-artifact@v4
         with:
           name: wecun-${{ matrix.artifact_name }}
@@ -147,7 +112,35 @@ jobs:
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Create Release (without latest.json)
+      - name: Rename artifacts with Wecun prefix
+        shell: bash
+        run: |
+          # Rename macOS files
+          for f in artifacts/macos/*.dmg; do
+            [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
+          done
+          for f in artifacts/macos/*.app.tar.gz; do
+            [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
+          done
+          for f in artifacts/macos/*.app.tar.gz.sig; do
+            [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
+          done
+          # Rename Windows files
+          for f in artifacts/windows/*.exe; do
+            [ -f "$f" ] && mv "$f" "artifacts/windows/Wecun_$(basename $f)"
+          done
+          # Rename Linux files
+          for f in artifacts/linux/*.deb; do
+            [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
+          done
+          for f in artifacts/linux/*.AppImage; do
+            [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
+          done
+          # List final artifact structure for debugging
+          echo "=== Final artifact structure ==="
+          find artifacts -type f | sort
+
+      - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
@@ -168,7 +161,7 @@ jobs:
           REPO="${{ github.repository }}"
           BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
 
-          # Read macOS signature (now in artifacts/macos/ after rename)
+          # Read macOS signature
           SIG_FILE=$(ls artifacts/macos/Wecun_*.app.tar.gz.sig 2>/dev/null | head -1)
           MAC_SIG=""
           if [ -n "$SIG_FILE" ]; then
