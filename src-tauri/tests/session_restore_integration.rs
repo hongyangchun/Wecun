@@ -9,7 +9,6 @@ use wecun_lib::services::weibo_api::{
 use wecun_lib::state::AppState;
 
 const COOKIE_FILE_NAME: &str = "weibo_cookie.dat";
-const STRONGHOLD_FILE_NAME: &str = "cookie_vault.tauri";
 
 fn cookie_storage_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -35,26 +34,15 @@ fn create_app() -> tauri::App<tauri::test::MockRuntime> {
 }
 
 fn cookie_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path::PathBuf {
-    // Use app_data_dir to match the actual implementation
     handle
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
 }
 
-fn stronghold_dir(handle: &tauri::AppHandle<tauri::test::MockRuntime>) -> std::path::PathBuf {
-    // Stronghold uses app_local_data_dir in the actual implementation
-    handle
-        .path()
-        .app_local_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("wecun"))
-}
-
 fn cleanup_cookie_storage(handle: &tauri::AppHandle<tauri::test::MockRuntime>) {
     let dir = cookie_dir(handle);
-    let stronghold_dir = stronghold_dir(handle);
     let _ = fs::remove_file(dir.join(COOKIE_FILE_NAME));
-    let _ = fs::remove_file(stronghold_dir.join(STRONGHOLD_FILE_NAME));
 }
 
 #[test]
@@ -82,36 +70,22 @@ fn saved_cookie_restores_across_fresh_app_instances() {
 }
 
 #[test]
-fn restore_saved_cookie_migrates_plaintext_cookie_to_stronghold() {
+fn restore_saved_cookie_loads_cookie_into_state() {
     let _guard = lock_cookie_storage();
     let app = create_app();
     let handle = app.handle().clone();
     let state = handle.state::<AppState>();
-    let dir = cookie_dir(&handle);
-    let stronghold_dir = stronghold_dir(&handle);
-    let plaintext_path = dir.join(COOKIE_FILE_NAME);
-    let stronghold_path = stronghold_dir.join(STRONGHOLD_FILE_NAME);
 
     cleanup_cookie_storage(&handle);
-    fs::create_dir_all(&dir).expect("failed to create cookie dir");
-    fs::create_dir_all(&stronghold_dir).expect("failed to create stronghold dir");
-    fs::write(&plaintext_path, "SUB=migrate-me; ALF=1").expect("failed to seed plaintext cookie");
+    save_cookie(&handle, "SUB=restore-me; ALF=1");
 
     let restored = restore_saved_cookie(&handle, state.inner());
 
-    assert_eq!(restored.as_deref(), Some("SUB=migrate-me; ALF=1"));
-    assert_eq!(state.get_cookie(), "SUB=migrate-me; ALF=1");
-    assert!(
-        !plaintext_path.exists(),
-        "plaintext cookie file should be deleted after migration"
-    );
-    assert!(
-        stronghold_path.exists(),
-        "stronghold vault should be created during migration"
-    );
+    assert_eq!(restored.as_deref(), Some("SUB=restore-me; ALF=1"));
+    assert_eq!(state.get_cookie(), "SUB=restore-me; ALF=1");
     assert_eq!(
         load_saved_cookie(&handle).as_deref(),
-        Some("SUB=migrate-me; ALF=1")
+        Some("SUB=restore-me; ALF=1")
     );
 
     cleanup_cookie_storage(&handle);
