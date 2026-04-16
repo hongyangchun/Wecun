@@ -491,3 +491,276 @@ header h1 {
     }
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ExportContext, WeiboImage, WeiboPost};
+
+    fn sample_post(id: &str) -> WeiboPost {
+        WeiboPost {
+            mblogid: id.to_string(),
+            created_at: "Mon Jan 15 12:00:00 +0800 2024".to_string(),
+            text: "<p>测试微博内容</p>".to_string(),
+            images: vec![WeiboImage {
+                original_url: "https://example.com/img.jpg".to_string(),
+                local_path: Some("images/img.jpg".to_string()),
+                width: 1080,
+                height: 1080,
+            }],
+            is_repost: false,
+            repost_user: None,
+            region: Some("发布于 北京".to_string()),
+            source_url: format!("https://weibo.com/123/{id}"),
+            author: "测试用户".to_string(),
+            tags: vec!["测试标签".to_string()],
+        }
+    }
+
+    fn repost_post(id: &str) -> WeiboPost {
+        WeiboPost {
+            mblogid: id.to_string(),
+            created_at: "Mon Jan 15 12:00:00 +0800 2024".to_string(),
+            text: "<p>转发内容</p>".to_string(),
+            images: vec![],
+            is_repost: true,
+            repost_user: Some("原作者".to_string()),
+            region: None,
+            source_url: format!("https://weibo.com/123/{id}"),
+            author: "测试用户".to_string(),
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn test_html_escape() {
+        assert_eq!(html_escape("<script>"), "&lt;script&gt;");
+        assert_eq!(html_escape("&"), "&amp;");
+        assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
+        assert_eq!(html_escape("'single'"), "&#39;single&#39;");
+        assert_eq!(html_escape(">"), "&gt;");
+    }
+
+    #[test]
+    fn test_sanitize_html_content_preserves_allowed_tags() {
+        let html = "<p>Hello <b>world</b></p>";
+        let result = sanitize_html_content(html);
+        assert!(result.contains("<p>"), "Should preserve <p> tag");
+        assert!(result.contains("<b>"), "Should preserve <b> tag");
+        assert!(result.contains("world"), "Should preserve content");
+    }
+
+    #[test]
+    fn test_sanitize_html_content_removes_disallowed_tags() {
+        let html = "<p>Hello <script>alert('xss')</script></p>";
+        let result = sanitize_html_content(html);
+        assert!(!result.contains("<script>"), "Should remove <script> tag");
+        assert!(!result.contains("alert"), "Should remove script content");
+    }
+
+    #[test]
+    fn test_sanitize_html_content_preserves_links() {
+        let html = r#"<a href="https://example.com" title="Example">Link</a>"#;
+        let result = sanitize_html_content(html);
+        assert!(result.contains("<a"), "Should preserve <a> tag");
+        assert!(result.contains("href="), "Should preserve href attribute");
+        assert!(result.contains("https://example.com"), "Should preserve URL");
+    }
+
+    #[test]
+    fn test_sanitize_html_content_handles_br_tags() {
+        let html = "Line 1<br>Line 2";
+        let result = sanitize_html_content(html);
+        assert!(result.contains("<br"), "Should handle br tags");
+    }
+
+    #[test]
+    fn test_render_contains_title() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("test-1")];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("<title>"), "Should contain title tag");
+        assert!(html.contains("测试用户 的微博导出"), "Should contain author in title");
+        assert!(html.contains("<!DOCTYPE html>"), "Should be valid HTML5");
+    }
+
+    #[test]
+    fn test_render_favorites_title() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("fav-1")];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "收藏微博".to_string(),
+        };
+
+        let html = service.render(&posts, "我的收藏", &export_context);
+
+        assert!(html.contains("我收藏的微博"), "Should use favorites title");
+    }
+
+    #[test]
+    fn test_render_contains_post_content() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("content-1")];
+        let export_context = ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("测试微博内容"), "Should contain post text");
+        assert!(html.contains("测试用户"), "Should contain author name");
+        assert!(html.contains("Mon Jan 15 12:00:00 +0800 2024"), "Should contain date");
+        assert!(html.contains("发布于 北京"), "Should contain region");
+    }
+
+    #[test]
+    fn test_render_contains_repost_info() {
+        let service = HtmlExportService::new();
+        let posts = vec![repost_post("repost-1")];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("转发自 @原作者"), "Should contain repost info");
+    }
+
+    #[test]
+    fn test_render_contains_images() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("img-1")];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("<img"), "Should contain img tag");
+        assert!(html.contains("images/img.jpg"), "Should use local path");
+    }
+
+    #[test]
+    fn test_render_contains_source_link() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("link-1")];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("原文链接"), "Should contain source link text");
+        assert!(html.contains("https://weibo.com/123/link-1"), "Should contain source URL");
+    }
+
+    #[test]
+    fn test_render_contains_tags() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("tag-1")];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("测试标签"), "Should contain tags");
+    }
+
+    #[test]
+    fn test_render_contains_css() {
+        let service = HtmlExportService::new();
+        let posts = vec![];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("<style>"), "Should contain style tag");
+        assert!(html.contains(".post {"), "Should contain CSS classes");
+        assert!(html.contains("@media print"), "Should contain print styles");
+        assert!(html.contains("@media (prefers-color-scheme: dark)"), "Should contain dark mode styles");
+    }
+
+    #[test]
+    fn test_render_empty_posts() {
+        let service = HtmlExportService::new();
+        let posts: Vec<WeiboPost> = vec![];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("共 0 条微博"), "Should show zero posts count");
+        assert!(html.contains("</html>"), "Should be complete HTML document");
+    }
+
+    #[test]
+    fn test_render_multiple_posts() {
+        let service = HtmlExportService::new();
+        let posts = vec![
+            sample_post("multi-1"),
+            sample_post("multi-2"),
+            repost_post("multi-3"),
+        ];
+        let export_context = ExportContext {
+            date_range_label: "全部时间".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let html = service.render(&posts, "测试用户", &export_context);
+
+        assert!(html.contains("共 3 条微博"), "Should show correct post count");
+        // Should have 3 article elements
+        let article_count = html.matches("<article").count();
+        assert_eq!(article_count, 3, "Should have 3 article elements");
+    }
+
+    #[tokio::test]
+    async fn test_export_creates_file() {
+        let service = HtmlExportService::new();
+        let posts = vec![sample_post("export-1")];
+        let export_context = ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        };
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "weibo-html-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        service.export(&posts, &temp_dir, &export_context).await.expect("Export should succeed");
+
+        // Check that file was created
+        let entries: Vec<_> = std::fs::read_dir(&temp_dir).unwrap().collect();
+        assert!(!entries.is_empty(), "Should create output file");
+
+        // Check file content
+        let html_file = entries[0].as_ref().unwrap().path();
+        let content = std::fs::read_to_string(&html_file).unwrap();
+        assert!(content.contains("<!DOCTYPE html>"), "Should be valid HTML");
+        assert!(content.contains("测试微博内容"), "Should contain post content");
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+}

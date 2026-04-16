@@ -89,7 +89,7 @@ fn parse_cached_posts(content: &str) -> Result<CachedPosts, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_cached_posts, save_cache_checkpoint, CACHE_DIR_NAME, CACHE_FILE_NAME};
+    use super::{parse_cached_posts, save_cache_checkpoint, save_cache_bundle, load_cache_bundle_sync, load_posts_cache_sync, CACHE_DIR_NAME, CACHE_FILE_NAME};
     use crate::models::{CheckpointMeta, ExportContext, WeiboImage, WeiboPost};
 
     fn sample_post(id: &str) -> WeiboPost {
@@ -142,6 +142,27 @@ mod tests {
         assert_eq!(bundle.posts[0].mblogid, "legacy-post");
     }
 
+    #[test]
+    fn parse_cached_posts_accepts_plain_array_format() {
+        // Old format: just an array of posts
+        let posts = vec![sample_post("array-post-1"), sample_post("array-post-2")];
+        let content = serde_json::to_string(&posts).unwrap();
+
+        let bundle = parse_cached_posts(&content).expect("array format should deserialize");
+
+        assert!(bundle.checkpoint.is_none());
+        assert_eq!(bundle.posts.len(), 2);
+        assert_eq!(bundle.posts[0].mblogid, "array-post-1");
+        assert_eq!(bundle.posts[1].mblogid, "array-post-2");
+    }
+
+    #[test]
+    fn parse_cached_posts_handles_invalid_json() {
+        let content = "not valid json";
+        let result = parse_cached_posts(content);
+        assert!(result.is_err(), "Should error on invalid JSON");
+    }
+
     #[tokio::test]
     async fn save_cache_checkpoint_writes_checkpoint_metadata() {
         let output_dir = temp_output_dir("checkpoint");
@@ -176,6 +197,141 @@ mod tests {
         assert_eq!(checkpoint.total_fetched, 42);
         assert_eq!(checkpoint.total_posts, 99);
         assert_eq!(bundle.posts.len(), 1);
+
+        std::fs::remove_dir_all(&output_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn save_cache_bundle_without_checkpoint() {
+        let output_dir = temp_output_dir("bundle");
+        let output_dir_str = output_dir.to_string_lossy().to_string();
+        let posts = vec![sample_post("bundle-post")];
+
+        save_cache_bundle(
+            &posts,
+            &output_dir_str,
+            ExportContext {
+                date_range_label: "2024-01-01至2024-01-31".to_string(),
+                type_label: "微博备份".to_string(),
+            },
+        )
+        .await
+        .expect("cache bundle should be written");
+
+        let cache_path = output_dir.join(CACHE_DIR_NAME).join(CACHE_FILE_NAME);
+        assert!(cache_path.exists(), "Cache file should exist");
+
+        let content = std::fs::read_to_string(&cache_path).expect("cache file should be readable");
+        let bundle = parse_cached_posts(&content).expect("cache should deserialize");
+
+        assert!(bundle.checkpoint.is_none(), "Bundle should not have checkpoint");
+        assert_eq!(bundle.posts.len(), 1);
+        assert_eq!(bundle.posts[0].mblogid, "bundle-post");
+
+        std::fs::remove_dir_all(&output_dir).ok();
+    }
+
+    #[test]
+    fn load_cache_bundle_sync_reads_correctly() {
+        let output_dir = temp_output_dir("sync-load");
+        let output_dir_str = output_dir.to_string_lossy().to_string();
+        let posts = vec![sample_post("sync-post")];
+
+        // Write cache using sync method for test setup
+        // Note: source_type is Option<String> in the model, not a string directly
+        let cache_content = serde_json::to_string(&serde_json::json!({
+            "export_context": {
+                "date_range_label": "2024-01-01至2024-01-31",
+                "type_label": "微博备份"
+            },
+            "posts": posts,
+            "checkpoint": {
+                "uid": "789",
+                "source_type": null,
+                "last_page": 5,
+                "total_fetched": 100,
+                "total_posts": 200
+            }
+        })).unwrap();
+
+        let cache_file = output_dir.join(CACHE_DIR_NAME).join(CACHE_FILE_NAME);
+        std::fs::create_dir_all(cache_file.parent().unwrap()).unwrap();
+        std::fs::write(&cache_file, cache_content).unwrap();
+
+        let bundle = load_cache_bundle_sync(&output_dir_str).expect("Should load cache bundle");
+
+        assert_eq!(bundle.posts.len(), 1);
+        assert_eq!(bundle.posts[0].mblogid, "sync-post");
+        let checkpoint = bundle.checkpoint.expect("Should have checkpoint");
+        assert_eq!(checkpoint.uid, "789");
+        assert_eq!(checkpoint.last_page, 5);
+
+        std::fs::remove_dir_all(&output_dir).ok();
+    }
+
+    #[test]
+    fn load_posts_cache_sync_returns_posts_only() {
+        let output_dir = temp_output_dir("posts-only");
+        let output_dir_str = output_dir.to_string_lossy().to_string();
+        let posts = vec![sample_post("post-only-1"), sample_post("post-only-2")];
+
+        let cache_content = serde_json::to_string(&serde_json::json!({
+            "export_context": {
+                "date_range_label": "全部时间",
+                "type_label": "微博备份"
+            },
+            "posts": posts
+        })).unwrap();
+
+        let cache_file = output_dir.join(CACHE_DIR_NAME).join(CACHE_FILE_NAME);
+        std::fs::create_dir_all(cache_file.parent().unwrap()).unwrap();
+        std::fs::write(&cache_file, cache_content).unwrap();
+
+        let loaded_posts = load_posts_cache_sync(&output_dir_str).expect("Should load posts");
+
+        assert_eq!(loaded_posts.len(), 2);
+        assert_eq!(loaded_posts[0].mblogid, "post-only-1");
+        assert_eq!(loaded_posts[1].mblogid, "post-only-2");
+
+        std::fs::remove_dir_all(&output_dir).ok();
+    }
+
+    #[test]
+    fn load_cache_handles_missing_file() {
+        let output_dir = temp_output_dir("missing");
+        let output_dir_str = output_dir.to_string_lossy().to_string();
+
+        let result = load_cache_bundle_sync(&output_dir_str);
+        assert!(result.is_err(), "Should error when cache file doesn't exist");
+
+        std::fs::remove_dir_all(&output_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn save_and_load_roundtrip() {
+        let output_dir = temp_output_dir("roundtrip");
+        let output_dir_str = output_dir.to_string_lossy().to_string();
+        let posts = vec![
+            sample_post("roundtrip-1"),
+            sample_post("roundtrip-2"),
+        ];
+
+        save_cache_bundle(
+            &posts,
+            &output_dir_str,
+            ExportContext {
+                date_range_label: "2024-01-01至2024-12-31".to_string(),
+                type_label: "收藏微博".to_string(),
+            },
+        )
+        .await
+        .expect("Should save cache");
+
+        let loaded_posts = load_posts_cache_sync(&output_dir_str).expect("Should load posts");
+
+        assert_eq!(loaded_posts.len(), 2);
+        assert_eq!(loaded_posts[0].mblogid, "roundtrip-1");
+        assert_eq!(loaded_posts[1].mblogid, "roundtrip-2");
 
         std::fs::remove_dir_all(&output_dir).ok();
     }

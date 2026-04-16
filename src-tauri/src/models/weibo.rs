@@ -57,7 +57,7 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct RawPost {
     pub mblogid: String,
     pub created_at: String,

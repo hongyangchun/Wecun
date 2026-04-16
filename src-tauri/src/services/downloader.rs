@@ -681,19 +681,174 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_date_parsing() {
+    fn test_date_parsing_standard_format() {
+        // Standard Weibo format: "Wed Mar 19 09:53:32 +0800 2014"
         let ts = parse_weibo_date_to_timestamp("Wed Mar 19 09:53:32 +0800 2014");
         assert!(ts > 0, "Should parse correctly");
         assert_eq!(ts, 1395194012);
-        
-        let ts2 = parse_weibo_date_to_timestamp("2024-03-19 09:53:32");
-        assert!(ts2 > 0, "Should parse ISO-like");
-        // 2024-03-19 09:53:32 +0800 -> 1710813212
-        assert_eq!(ts2, 1710813212);
+    }
 
-        let ts3 = parse_weibo_date_to_timestamp("2024-03-19");
-        assert!(ts3 > 0, "Should parse YYYY-MM-DD");
-        // 2024-03-19 00:00:00 +0800 -> 1710777600
-        assert_eq!(ts3, 1710777600);
+    #[test]
+    fn test_date_parsing_iso_format() {
+        // Format: "2024-03-19 09:53:32"
+        let ts = parse_weibo_date_to_timestamp("2024-03-19 09:53:32");
+        assert!(ts > 0, "Should parse ISO-like format");
+        assert_eq!(ts, 1710813212);
+    }
+
+    #[test]
+    fn test_date_parsing_date_only() {
+        // Format: "2024-03-19"
+        let ts = parse_weibo_date_to_timestamp("2024-03-19");
+        assert!(ts > 0, "Should parse YYYY-MM-DD");
+        assert_eq!(ts, 1710777600);
+    }
+
+    #[test]
+    fn test_date_parsing_relative_seconds() {
+        let ts = parse_weibo_date_to_timestamp("30秒前");
+        let now = Utc::now().timestamp();
+        assert!(ts > 0, "Should parse relative seconds");
+        assert!(ts <= now && ts >= now - 60, "Should be within last minute");
+    }
+
+    #[test]
+    fn test_date_parsing_relative_minutes() {
+        let ts = parse_weibo_date_to_timestamp("5分钟前");
+        let now = Utc::now().timestamp();
+        assert!(ts > 0, "Should parse relative minutes");
+        assert!(ts <= now - 240 && ts >= now - 360, "Should be about 5 minutes ago");
+    }
+
+    #[test]
+    fn test_date_parsing_today() {
+        let ts = parse_weibo_date_to_timestamp("今天 10:00");
+        assert!(ts > 0, "Should parse 'today' format");
+        let now = Utc::now().timestamp();
+        assert!(ts <= now, "Should be in the past");
+    }
+
+    #[test]
+    fn test_date_parsing_yesterday() {
+        let ts = parse_weibo_date_to_timestamp("昨天 10:00");
+        assert!(ts > 0, "Should parse 'yesterday' format");
+        // Just verify it's in the past
+        let now = Utc::now().timestamp();
+        assert!(ts < now, "Yesterday should be in the past");
+        assert!(ts > now - 172800, "Yesterday should be within last 48 hours");
+    }
+
+    #[test]
+    fn test_date_parsing_month_day_format() {
+        // Format: "04-07 10:00" (Current year)
+        let ts = parse_weibo_date_to_timestamp("04-07 10:00");
+        assert!(ts > 0, "Should parse MM-DD HH:MM format");
+    }
+
+    #[test]
+    fn test_date_parsing_empty_string() {
+        let ts = parse_weibo_date_to_timestamp("");
+        assert_eq!(ts, 0, "Empty string should return 0");
+    }
+
+    #[test]
+    fn test_date_parsing_invalid_format() {
+        let ts = parse_weibo_date_to_timestamp("invalid date format");
+        assert_eq!(ts, 0, "Invalid format should return 0");
+    }
+
+    #[test]
+    fn test_count_visible_chars() {
+        let html = "<p>Hello <b>world</b></p>";
+        assert_eq!(count_visible_chars(html), 10, "Should count visible characters excluding tags");
+
+        let plain = "Hello world";
+        assert_eq!(count_visible_chars(plain), 10, "Should count plain text");
+
+        let with_spaces = "Hello   world";
+        assert_eq!(count_visible_chars(with_spaces), 10, "Should not count whitespace");
+
+        let empty = "";
+        assert_eq!(count_visible_chars(empty), 0, "Empty string should return 0");
+    }
+
+    #[test]
+    fn test_needs_long_text() {
+        let raw_with_flag = RawPost {
+            is_long_text: Some(true),
+            text: "Short".to_string(),
+            ..Default::default()
+        };
+        assert!(needs_long_text(&raw_with_flag), "Should need long text when flag is true");
+
+        let raw_with_expand = RawPost {
+            is_long_text: Some(false),
+            text: "点击展开全文".to_string(),
+            ..Default::default()
+        };
+        assert!(needs_long_text(&raw_with_expand), "Should need long text when text contains '展开'");
+
+        let raw_normal = RawPost {
+            is_long_text: Some(false),
+            text: "Normal short post".to_string(),
+            ..Default::default()
+        };
+        assert!(!needs_long_text(&raw_normal), "Should not need long text for normal post");
+    }
+
+    #[test]
+    fn test_normalize_raw_post_for_export() {
+        let raw = RawPost {
+            text: "Original".to_string(),
+            ..Default::default()
+        };
+        let result = normalize_raw_post_for_export(raw, Some("Long text".to_string()), None);
+        assert_eq!(result.text, "Long text", "Should replace text with long text");
+
+        let raw2 = RawPost {
+            text: "Original".to_string(),
+            ..Default::default()
+        };
+        let result2 = normalize_raw_post_for_export(raw2, None, None);
+        assert_eq!(result2.text, "Original", "Should keep original text when no long text");
+
+        let raw3 = RawPost {
+            text: "Original".to_string(),
+            retweeted_status: Some(Box::new(RawPost {
+                text: "Retweeted".to_string(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let result3 = normalize_raw_post_for_export(raw3, None, Some("Long retweeted".to_string()));
+        assert_eq!(result3.retweeted_status.as_ref().unwrap().text, "Long retweeted", "Should replace retweeted text");
+    }
+
+    #[test]
+    fn test_image_extension_extraction() {
+        assert_eq!(image_extension("https://example.com/image.jpg"), "jpg");
+        assert_eq!(image_extension("https://example.com/image.png?size=large"), "png");
+        assert_eq!(image_extension("https://example.com/image.jpeg#fragment"), "jpeg");
+        assert_eq!(image_extension("https://example.com/image"), "jpg", "Should default to jpg when no extension");
+        assert_eq!(image_extension(""), "jpg", "Should default to jpg for empty string");
+    }
+
+    #[test]
+    fn test_format_date_range_label() {
+        assert_eq!(
+            format_date_range_label(Some(1704067200), Some(1706745600)),
+            "2024-01-01至2024-02-01",
+            "Should format date range"
+        );
+        assert_eq!(
+            format_date_range_label(None, None),
+            "全部时间",
+            "Should return default label when no dates"
+        );
+        assert_eq!(
+            format_date_range_label(Some(1704067200), None),
+            "全部时间",
+            "Should return default when end is missing"
+        );
     }
 }
