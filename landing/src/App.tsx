@@ -1,4 +1,38 @@
 import { Github, Download, ArrowRight, FileText, ImageIcon, Shield, Monitor, Globe } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+function useTotalDownloads() {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch('https://api.github.com/repos/hongyangchun/Wecun/releases')
+      .then((res) => res.json())
+      .then((releases: Array<{ assets: Array<{ download_count: number }> }>) => {
+        const total = releases.reduce((sum, release) => {
+          return sum + release.assets.reduce((s, a) => s + a.download_count, 0);
+        }, 0);
+        setCount(total);
+      })
+      .catch(() => setCount(null));
+  }, []);
+
+  return count;
+}
+
+function DownloadCount({ className = '' }: { className?: string }) {
+  const count = useTotalDownloads();
+
+  if (count === null) return null;
+
+  return (
+    <div className={`inline-flex items-center gap-2 ${className}`}>
+      <Download size={14} className="text-[var(--color-accent)]" />
+      <span>
+        已下载 <strong className="text-[var(--color-text)]">{count.toLocaleString()}</strong> 次
+      </span>
+    </div>
+  );
+}
 
 const PLATFORMS = [
   {
@@ -130,9 +164,12 @@ export default function App() {
       <section className="pt-40 pb-32 px-6">
         <div className="max-w-5xl mx-auto">
           <div className="max-w-3xl animate-fade-up">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-text-muted)] mb-8">
-              <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] pulse-dot"></span>
-              <span className="mono text-xs">v1.0.0 现已可用</span>
+            <div className="flex flex-wrap items-center gap-3 mb-8">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-text-muted)]">
+                <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] pulse-dot"></span>
+                <span className="mono text-xs">v1.0.0 现已可用</span>
+              </div>
+              <DownloadCount className="text-sm text-[var(--color-text-muted)]" />
             </div>
 
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
@@ -361,9 +398,10 @@ export default function App() {
       <section id="download" className="py-32 px-6 bg-[var(--color-surface)] border-t border-[var(--color-border)]">
         <div className="max-w-5xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">开始使用</h2>
-          <p className="text-[var(--color-text-muted)] text-lg mb-12 max-w-xl mx-auto">
+          <p className="text-[var(--color-text-muted)] text-lg mb-4 max-w-xl mx-auto">
             选择你的平台，下载并安装。完全免费，开源透明。
           </p>
+          <DownloadCount className="text-sm text-[var(--color-text-muted)] mb-12 justify-center" />
 
           <div className="grid md:grid-cols-3 gap-6 max-w-3xl mx-auto mb-12">
             {PLATFORMS.map((platform) => (
