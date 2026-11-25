@@ -348,3 +348,80 @@ fn is_emoji_char(ch: char) -> bool {
             | 0x2700..=0x27BF
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{WeiboImage, WeiboPost};
+
+    fn post(id: &str, created_at: &str, text: &str, repost: bool, region: Option<&str>) -> WeiboPost {
+        WeiboPost {
+            mblogid: id.to_string(),
+            created_at: created_at.to_string(),
+            text: text.to_string(),
+            images: Vec::new(),
+            is_repost: repost,
+            repost_user: None,
+            repost_text: None,
+            region: region.map(|value| value.to_string()),
+            source_url: format!("https://weibo.com/123/{id}"),
+            author: "测试博主".to_string(),
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn counts_posts_tags_and_when_they_were_published() {
+        let mut with_image = post("p2", "2024-03-18 09:00:00", "早安", false, Some("发布于 北京"));
+        with_image.images.push(WeiboImage {
+            original_url: "https://example.com/a.jpg".to_string(),
+            local_path: None,
+            width: 1,
+            height: 1,
+        });
+        let posts = vec![
+            post("p1", "2024-03-15 14:30:00", "<p>你好#春天#@朋友</p>", false, None),
+            with_image,
+            post("p3", "2024-03-18 21:00:00", "转发", true, None),
+            // Its date cannot be parsed: it is counted, but takes part in no distribution.
+            post("p4", " sometime ", "😀", false, None),
+            post("p5", "2024-03-19 15:00:00", "下午", false, None),
+        ];
+
+        let result = LocalAnalyzer::analyze(&posts);
+        let stats = result.basic_stats;
+
+        assert_eq!((stats.total_posts, stats.total_original, stats.total_reposts), (5, 4, 1));
+        assert_eq!(stats.avg_text_length, 3.2);
+        assert_eq!((stats.min_text_length, stats.max_text_length), (1, 9));
+        assert_eq!((stats.total_active_days, stats.most_active_date.as_str()), (3, "2024-03-18"));
+        assert_eq!(stats.posts_per_day, 1.0, "five posts over the five days from the 15th to the 19th");
+        // 09:00, 14:30, 15:00 and 21:00.
+        assert_eq!(stats.hourly_distribution.iter().filter(|count| **count > 0).count(), 4);
+        assert_eq!(stats.hourly_distribution[14], 1);
+        // A Friday, then two Mondays and a Tuesday.
+        assert_eq!(stats.weekly_distribution, [2, 1, 0, 0, 1, 0, 0]);
+        assert_eq!(stats.monthly_distribution, [("2024-03".to_string(), 4)]);
+        assert_eq!((stats.active_hours.peak_start, stats.active_hours.peak_end), (13, 15));
+
+        assert_eq!(result.content_analysis.top_hashtags, [("春天".to_string(), 1)]);
+        assert_eq!(result.content_analysis.top_mentions, [("朋友".to_string(), 1)]);
+        assert_eq!(result.content_analysis.posts_with_images_ratio, 0.2);
+        assert_eq!(result.content_analysis.emoji_frequency, [("😀".to_string(), 1)]);
+        assert_eq!(result.influence_metrics.region_distribution, [("北京".to_string(), 1)]);
+        assert_eq!(result.influence_metrics.original_ratio, 0.8);
+    }
+
+    #[test]
+    fn an_empty_backup_yields_zeros_instead_of_dividing_by_nothing() {
+        let result = LocalAnalyzer::analyze(&[]);
+
+        assert_eq!(result.basic_stats.total_posts, 0);
+        assert_eq!(result.basic_stats.posts_per_day, 0.0);
+        assert_eq!(result.basic_stats.hourly_distribution, vec![0; 24]);
+        assert_eq!(
+            (result.basic_stats.active_hours.peak_start, result.basic_stats.active_hours.peak_end),
+            (0, 0)
+        );
+    }
+}

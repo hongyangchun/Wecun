@@ -5,6 +5,9 @@ import type { ProgressEvent } from "../types/contracts";
 
 vi.mock("../lib/tauri-bridge", () => ({
   startDownload: vi.fn(),
+  getAiKeyStatus: vi.fn().mockResolvedValue(false),
+  setAiKey: vi.fn(),
+  clearAiKey: vi.fn(),
   inspectBackup: vi.fn(),
   cancelDownload: vi.fn(),
   exportPosts: vi.fn(),

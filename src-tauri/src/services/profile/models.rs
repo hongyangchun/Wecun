@@ -10,6 +10,12 @@ pub struct ProfileResult {
     pub content_analysis: ContentAnalysis,
     pub influence_metrics: InfluenceMetrics,
     pub deep_profile: Option<DeepProfile>,
+    /// Whether the user has set a key for the AI analysis.
+    #[serde(default)]
+    pub ai_configured: bool,
+    /// Why the AI part is missing although a key is set.
+    #[serde(default)]
+    pub ai_error: Option<String>,
 }
 
 /// Basic statistics computed locally from post data.

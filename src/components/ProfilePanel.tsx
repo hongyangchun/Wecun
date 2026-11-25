@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { openOutputDir } from "../lib/tauri-bridge";
+import AiKeySetup from "./AiKeySetup";
+import LocalStats from "./LocalStats";
 import type { ProfileResult } from "../types/contracts";
 
 interface ProfilePanelProps {
@@ -7,6 +9,8 @@ interface ProfilePanelProps {
   authorName: string;
   onExportOpenclaw: () => Promise<string>;
   onClose: () => void;
+  /** Run the analysis again, after a key was saved. */
+  onAnalyze: () => void;
 }
 
 const sectionStyle: React.CSSProperties = {
@@ -83,7 +87,13 @@ function TagList({ items }: { items: [string, number][] }) {
   );
 }
 
-export default function ProfilePanel({ profile, authorName, onExportOpenclaw, onClose }: ProfilePanelProps) {
+export default function ProfilePanel({
+  profile,
+  authorName,
+  onExportOpenclaw,
+  onClose,
+  onAnalyze,
+}: ProfilePanelProps) {
   const { basicStats, contentAnalysis, deepProfile } = profile;
   const [isExporting, setIsExporting] = useState(false);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
@@ -128,6 +138,8 @@ export default function ProfilePanel({ profile, authorName, onExportOpenclaw, on
         </p>
         <div style={{ marginTop: 12, height: 1, background: "var(--color-border-subtle)" }} />
       </div>
+
+      <LocalStats stats={basicStats} regions={profile.influenceMetrics.regionDistribution} />
 
       {deepProfile && (
         <div style={sectionStyle}>
@@ -404,6 +416,14 @@ export default function ProfilePanel({ profile, authorName, onExportOpenclaw, on
         </div>
       )}
 
+      {!deepProfile && (
+        <AiKeySetup
+          configured={Boolean(profile.aiConfigured)}
+          error={profile.aiError}
+          onSaved={onAnalyze}
+        />
+      )}
+
       <div style={{
         display: "flex",
         gap: 8,
@@ -450,7 +470,9 @@ export default function ProfilePanel({ profile, authorName, onExportOpenclaw, on
           <path d="M8 6V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
         </svg>
-        基于微博内容的AI推测分析，仅供参考
+        {deepProfile
+          ? "基于微博内容的AI推测分析，仅供参考"
+          : "以上统计在本地计算，未发送给任何第三方"}
       </div>
     </div>
   );

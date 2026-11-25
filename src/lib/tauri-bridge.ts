@@ -63,6 +63,20 @@ export async function inspectBackup(outputDir: string): Promise<BackupMeta | nul
   return await invoke<BackupMeta | null>("inspect_backup", { outputDir });
 }
 
+/** Whether the user has set a key for the AI analysis. */
+export async function getAiKeyStatus(): Promise<boolean> {
+  return await invoke<boolean>("get_ai_key_status");
+}
+
+/** Keeps the key for the AI analysis in the app's data directory. */
+export async function setAiKey(key: string): Promise<void> {
+  await invoke("set_ai_key", { key });
+}
+
+export async function clearAiKey(): Promise<void> {
+  await invoke("clear_ai_key");
+}
+
 export async function cancelDownload(): Promise<void> {
   await invoke("cancel_download");
 }

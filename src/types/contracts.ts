@@ -80,6 +80,10 @@ export interface ProfileResult {
   contentAnalysis: ContentAnalysis;
   influenceMetrics: InfluenceMetrics;
   deepProfile: DeepProfile | null;
+  /** Whether the user has set a key for the AI analysis. */
+  aiConfigured?: boolean;
+  /** Why the AI part is missing although a key is set. */
+  aiError?: string | null;
 }
 
 export interface BasicStats {
@@ -106,7 +110,8 @@ export interface ActiveHours {
 }
 
 export interface ContentAnalysis {
-  topWords: [string, number][];
+  /** Not sent by the backend any more; kept optional for older builds. */
+  topWords?: [string, number][];
   topHashtags: [string, number][];
   topMentions: [string, number][];
   avgHashtagsPerPost: number;
