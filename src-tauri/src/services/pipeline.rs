@@ -189,6 +189,7 @@ impl DownloadService {
             Err(error) => {
                 if walk.dirty && walk.save_checkpoint(&context).await.is_ok() {
                     walk.checkpoint_on_disk = Some((walk.last_page, walk.posts.len()));
+                    walk.dirty = false;
                 }
                 // A failing write must not hide the error that ended the walk, and "your progress is
                 // saved" may only be said when a checkpoint really is on disk.
@@ -218,12 +219,18 @@ impl DownloadService {
                     report_cancelled(sink, &walk);
                     return Err(error);
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    report_progress_saved(sink, &walk);
+                    return Err(error);
+                }
                 Ok(()) => {}
             }
         }
 
-        cache::save_cache_bundle(&walk.posts, &request.output_dir, export_context).await?;
+        if let Err(error) = cache::save_cache_bundle(&walk.posts, &request.output_dir, export_context).await {
+            report_progress_saved(sink, &walk);
+            return Err(error);
+        }
         state.posts_exported.store(walk.posts.len(), Ordering::Relaxed);
 
         Ok(DownloadOutcome {
@@ -361,6 +368,7 @@ impl DownloadService {
 
         let mut long_texts_done = 0;
         for raw in candidates {
+            let failures_before = walk.long_text_failed;
             let top_level_long_text = if needs_long_text(&raw) {
                 let says_it_is_long = raw.is_long_text == Some(true);
                 let text = fetch_long_text(context, walk, &raw.mblogid, says_it_is_long).await?;
@@ -402,6 +410,8 @@ impl DownloadService {
                 && request.min_text_length > 0
                 && count_visible_chars(&post.text) < request.min_text_length
             {
+                // Nothing of this post is kept, so nothing of it was kept truncated.
+                walk.long_text_failed = failures_before;
                 continue;
             }
             if !walk.existing_ids.insert(post.mblogid.clone()) {
@@ -721,8 +731,16 @@ fn report_progress_saved(sink: &dyn ProgressSink, walk: &WalkState) {
 
 fn saved_progress_message(walk: &WalkState) -> Option<String> {
     let (last_page, saved) = walk.checkpoint_on_disk?;
+    let how_far = if walk.dirty {
+        format!(
+            "到第 {} 页（已获取 {saved} 条微博，之后处理的几条没能写入磁盘）",
+            last_page + 1
+        )
+    } else {
+        format!("（已获取 {saved} 条微博）")
+    };
     Some(format!(
-        "进度已保存（已获取 {saved} 条微博），再次点击「开始下载」会从第 {} 页接着下载",
+        "进度已保存{how_far}，再次点击「开始下载」会从第 {} 页接着下载",
         last_page + 1
     ))
 }
@@ -732,6 +750,9 @@ fn report_cancelled(sink: &dyn ProgressSink, walk: &WalkState) {
     // even when pages were walked but no post kept.
     let (message, resumable) = match saved_progress_message(walk) {
         Some(message) => (message, 1),
+        // Nothing ever reached the disk. Say so when something was processed, rather than
+        // implying the stop was clean.
+        None if walk.dirty => ("已取消，但进度没能写入磁盘，下次需要重新下载".to_string(), 0),
         None => ("已取消".to_string(), 0),
     };
     let saved = walk.checkpoint_on_disk.map_or(0, |(_, saved)| saved);
@@ -1341,7 +1362,7 @@ mod tests {
             (0, 0),
             "nothing reached the disk, so there is nothing to continue from"
         );
-        assert_eq!(cancelled.message, "已取消");
+        assert!(cancelled.message.contains("没能写入磁盘"), "{}", cancelled.message);
         let _ = std::fs::remove_dir_all(&parent);
     }
 
@@ -1464,6 +1485,46 @@ mod tests {
             saved_ids(&dir),
             ["n3", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11"],
             "the newer post is found on the overlap page and sorted to where it belongs"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_long_post_dropped_by_the_length_filter_is_not_reported_as_truncated() {
+        let dir = temp_output_dir("dropped-long-post");
+        let mut pages = timeline(1, 1);
+        pages[0][0] = long_post(0);
+        let mut strict = request(&dir);
+        strict.min_text_length = 50;
+        let source = FakeSource {
+            long_text: HashMap::from([("p0".to_string(), Err(Failure::Transient))]),
+            ..FakeSource::new(pages)
+        };
+
+        let (result, _, _) = run(&strict, &source).await;
+        let outcome = result.unwrap();
+
+        assert_eq!(outcome.saved, 0);
+        assert_eq!(outcome.long_text_failed, 0, "nothing of this post was kept, so nothing was kept truncated");
+    }
+
+    #[tokio::test]
+    async fn an_error_after_the_timeline_is_saved_still_says_the_progress_is_on_disk() {
+        let dir = temp_output_dir("images-dir-blocked");
+        // A regular file where the images directory should go makes the image phase fail.
+        std::fs::write(dir.join("images"), "").unwrap();
+        let mut pages = timeline(1, 1);
+        pages[0][0] = with_image(post(0));
+        let mut with_pictures = request(&dir);
+        with_pictures.include_images = true;
+
+        let (result, _, events) = run(&with_pictures, &FakeSource::new(pages)).await;
+
+        assert!(result.is_err());
+        assert!(cache_in(&dir).checkpoint.is_some(), "the timeline itself was saved");
+        assert!(
+            events.iter().any(|event| event.message.contains("第 2 页接着下载")),
+            "the error screen learns that starting again continues the download"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
