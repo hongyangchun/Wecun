@@ -52,10 +52,7 @@ impl<R: Runtime> WeiboApiClient<R> {
     async fn throttle(&self) -> Result<(), AppError> {
         let sleep_duration = {
             let mut guard = self.last_fetch.lock().await;
-            let wait = guard.and_then(|last| {
-                let elapsed = last.elapsed();
-                (elapsed < MIN_REQUEST_INTERVAL).then_some(MIN_REQUEST_INTERVAL - elapsed)
-            });
+            let wait = guard.and_then(|last| remaining_throttle_delay(last.elapsed(), MIN_REQUEST_INTERVAL));
             if wait.is_none() {
                 *guard = Some(Instant::now());
             }
@@ -133,7 +130,7 @@ impl<R: Runtime> WeiboApiClient<R> {
                 "[DEBUG] Auth failure - Status: {}, Path: {}, Body preview: {}",
                 status,
                 path,
-                &text[..text.len().min(200)]
+                preview_str(&text, 200)
             );
 
             state.set_cookie(String::new());
@@ -145,12 +142,12 @@ impl<R: Runtime> WeiboApiClient<R> {
         if !status.is_success() {
             return Err(AppError::ApiError(format!(
                 "HTTP {status} from {path}: {}",
-                &text[..text.len().min(300)]
+                preview_str(&text, 300)
             )));
         }
 
         serde_json::from_str(&text)
-            .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", &text[..text.len().min(300)])))
+            .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", preview_str(&text, 300))))
     }
 
     /// Send GET request with a specific cookie (doesn't use state cookie).
@@ -184,12 +181,12 @@ impl<R: Runtime> WeiboApiClient<R> {
         if !status.is_success() {
             return Err(AppError::ApiError(format!(
                 "HTTP {status} from {path}: {}",
-                &text[..text.len().min(300)]
+                preview_str(&text, 300)
             )));
         }
 
         serde_json::from_str(&text)
-            .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", &text[..text.len().min(300)])))
+            .map_err(|e| AppError::Parse(format!("解析 {path} 失败: {e}\nBody: {}", preview_str(&text, 300))))
     }
 
     async fn request_with_retry<F, Fut>(
@@ -681,6 +678,14 @@ fn is_network_error(error: &AppError) -> bool {
     matches!(error, AppError::Network(_))
 }
 
+fn remaining_throttle_delay(elapsed: Duration, min_interval: Duration) -> Option<Duration> {
+    min_interval.checked_sub(elapsed).filter(|d| !d.is_zero())
+}
+
+fn preview_str(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
 fn retry_delay(config: &RetryConfig, attempt: u32) -> Duration {
     let multiplier = 2u32.saturating_pow(attempt.saturating_sub(1));
     config
@@ -798,8 +803,25 @@ pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_retryable_status, retry_delay, RetryConfig};
+    use super::{is_retryable_status, preview_str, remaining_throttle_delay, retry_delay, RetryConfig};
     use std::time::Duration;
+
+    #[test]
+    fn remaining_throttle_delay_never_underflows() {
+        let min = Duration::from_millis(1000);
+        assert_eq!(
+            remaining_throttle_delay(Duration::from_millis(300), min),
+            Some(Duration::from_millis(700))
+        );
+        assert_eq!(remaining_throttle_delay(Duration::from_millis(1000), min), None);
+        assert_eq!(remaining_throttle_delay(Duration::from_millis(2500), min), None);
+    }
+
+    #[test]
+    fn preview_str_handles_multibyte_utf8_safely() {
+        let chinese = "中文错误响应内容".repeat(50);
+        assert_eq!(preview_str(&chinese, 300).chars().count(), 300);
+    }
 
     #[test]
     fn retry_config_defaults_match_expected_backoff() {

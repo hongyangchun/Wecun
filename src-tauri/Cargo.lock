@@ -5446,7 +5446,7 @@ dependencies = [
 
 [[package]]
 name = "wecun"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "ammonia",
  "chrono",

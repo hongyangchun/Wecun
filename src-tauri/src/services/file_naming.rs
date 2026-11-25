@@ -87,8 +87,10 @@ pub fn format_date_range_for_filename(date_range_label: &str) -> String {
 }
 
 pub fn parse_date_prefix(created_at: &str) -> String {
-    if created_at.len() >= 10 && created_at.chars().nth(4) == Some('-') {
-        return created_at[..10].to_string();
+    if let Some(prefix) = created_at.get(..10) {
+        if prefix.as_bytes().get(4) == Some(&b'-') && prefix.as_bytes().get(7) == Some(&b'-') {
+            return prefix.to_string();
+        }
     }
 
     let months = [

@@ -128,11 +128,13 @@ pub fn parse_weibo_datetime(created_at: &str) -> Option<DateTime<FixedOffset>> {
     }
 
     // Fallback for YYYY-MM-DD
-    if created_at.len() >= 10 && created_at.contains('-') {
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(&created_at[..10], "%Y-%m-%d") {
-            if let Some(dt) = date.and_hms_opt(0, 0, 0) {
-                if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
-                    return Some(dt_with_tz);
+    if let Some(date_prefix) = created_at.get(..10) {
+        if date_prefix.contains('-') {
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(date_prefix, "%Y-%m-%d") {
+                if let Some(dt) = date.and_hms_opt(0, 0, 0) {
+                    if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
+                        return Some(dt_with_tz);
+                    }
                 }
             }
         }

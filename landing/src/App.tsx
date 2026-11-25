@@ -20,7 +20,7 @@ interface ReleaseStats {
   platformUrls: Partial<Record<'macOS' | 'Windows' | 'Linux', string>>;
 }
 
-const FALLBACK_VERSION = 'v1.0.1';
+const FALLBACK_VERSION = 'v1.0.2';
 
 function useReleaseStats(): ReleaseStats {
   const [stats, setStats] = useState<ReleaseStats>({
@@ -85,21 +85,21 @@ const PLATFORMS = [
     name: 'macOS' as const,
     desc: 'Apple Silicon & Intel',
     format: '.dmg',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.1_universal.dmg',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.2_universal.dmg',
   },
   {
     icon: Monitor,
     name: 'Windows' as const,
     desc: 'x64',
     format: '.exe',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.1_x64-setup.exe',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.2_x64-setup.exe',
   },
   {
     icon: Globe,
     name: 'Linux' as const,
     desc: 'Ubuntu / Debian',
     format: '.AppImage / .deb',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.1_amd64.AppImage',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.2_amd64.AppImage',
   },
 ];
 
