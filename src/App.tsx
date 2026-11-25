@@ -309,7 +309,9 @@ function AppShell() {
     dispatch({ type: "START_PROCESSING" });
 
     try {
-      const uid = state.sourceType === "favorites" ? "" : extractUidFromUrl(state.profileUrl) || "";
+      // Favorites belong to the signed-in account. Sending its uid keeps one account's checkpoint
+      // from being resumed by another.
+      const uid = state.sourceType === "favorites" ? state.currentUid : extractUidFromUrl(state.profileUrl) || "";
       if (state.sourceType === "profile" && !uid) {
         dispatch({ type: "PROCESS_ERROR", message: "无法从链接中提取用户ID" });
         return;

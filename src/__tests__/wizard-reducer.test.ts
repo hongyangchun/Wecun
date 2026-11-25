@@ -178,14 +178,27 @@ describe("wizardReducer", () => {
     expect(next.resumeHint).toBeNull();
   });
 
-  it("keeps the backend's resume hint when a stopped download had saved posts", () => {
+  it("offers to continue whenever the backend says a checkpoint exists, even with no post kept", () => {
     const next = reduce(
-      { type: "UPDATE_PROGRESS", phase: "Cancelled", current: 6, total: 0, message: "进度已保存（已获取 6 条微博）" },
+      { type: "UPDATE_PROGRESS", phase: "Cancelled", current: 0, total: 1, message: "进度已保存（已获取 0 条微博）" },
       { ...INITIAL_STATE, logs: [] },
     );
 
     expect(next.processStatus).toBe("cancelled");
-    expect(next.resumeHint).toBe("进度已保存（已获取 6 条微博）");
+    expect(next.resumeHint).toBe("进度已保存（已获取 0 条微博）");
+  });
+
+  it("logs a retry without moving the progress bar", () => {
+    const next = reduce(
+      { type: "UPDATE_PROGRESS", phase: "Retrying", current: 0, total: 0, message: "请求过于频繁，正在重试(1/3)..." },
+      { ...INITIAL_STATE, processStatus: "downloading", progress: 40, current: 4, total: 10, logs: [] },
+    );
+
+    expect(next.progress).toBe(40);
+    expect(next.current).toBe(4);
+    expect(next.total).toBe(10);
+    expect(next.phase).toBe("请求过于频繁，正在重试(1/3)...");
+    expect(next.logs).toEqual(["请求过于频繁，正在重试(1/3)..."]);
   });
 
   it("stores the download outcome so the result screen can report it", () => {
@@ -196,6 +209,16 @@ describe("wizardReducer", () => {
     );
 
     expect(next.processStatus).toBe("downloaded");
+    expect(next.outcome).toBe(outcome);
+  });
+
+  it("keeps the outcome when the dialog returns to the export grid without a new one", () => {
+    const outcome = { saved: 8, longTextFailed: 1, imageFailed: 0, resumedFromPage: null, stoppedEarly: null };
+    const next = reduce(
+      { type: "DOWNLOAD_COMPLETE" },
+      { ...INITIAL_STATE, processStatus: "done", outcome },
+    );
+
     expect(next.outcome).toBe(outcome);
   });
 

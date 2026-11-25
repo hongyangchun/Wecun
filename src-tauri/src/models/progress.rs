@@ -11,6 +11,8 @@ pub enum ProgressPhase {
     Error,
     Cancelled,
     Resuming,
+    /// A failed request is being retried. Logged by the UI, never drawn as progress.
+    Retrying,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

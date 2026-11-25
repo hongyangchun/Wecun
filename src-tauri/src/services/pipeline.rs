@@ -159,7 +159,10 @@ impl DownloadService {
         };
 
         let mut walk = WalkState::resume(&context).await;
-        let mut page = (walk.last_page + 1) as i64;
+        // Start one page before the first unprocessed one. A post deleted on Weibo during a pause
+        // moves every later post up a slot, so the neighbour of the last saved post may have slipped
+        // onto the page before; reading that page again costs one request and catches it.
+        let mut page = walk.last_page.max(1) as i64;
 
         // `Ok` means the walk reached the end of the timeline, or as far as it usefully could.
         let walked = loop {
@@ -180,19 +183,29 @@ impl DownloadService {
         let stopped_early = match walked {
             Ok(reason) => {
                 walk.save_checkpoint(&context).await?;
+                walk.checkpoint_on_disk = Some((walk.last_page, walk.posts.len()));
                 reason
             }
             Err(error) => {
-                if walk.dirty {
-                    // A failing write must not hide the error that ended the walk.
-                    let _ = walk.save_checkpoint(&context).await;
+                if walk.dirty && walk.save_checkpoint(&context).await.is_ok() {
+                    walk.checkpoint_on_disk = Some((walk.last_page, walk.posts.len()));
                 }
+                // A failing write must not hide the error that ended the walk, and "your progress is
+                // saved" may only be said when a checkpoint really is on disk.
                 if matches!(error, AppError::Cancelled) {
                     report_cancelled(sink, &walk);
+                } else {
+                    report_progress_saved(sink, &walk);
                 }
                 return Err(error);
             }
         };
+
+        // A resumed walk reads one page again and appends what it finds there, so a newer post can
+        // arrive after older ones. A profile timeline is in post-time order: put it back.
+        if matches!(request.source_type, SourceType::Profile) {
+            walk.posts = in_timeline_order(std::mem::take(&mut walk.posts));
+        }
 
         // Overlapping pages must never leave duplicates in the saved posts.
         let mut seen = HashSet::new();
@@ -314,6 +327,7 @@ impl DownloadService {
                 walk.last_checkpoint_at = Instant::now();
                 walk.posts_since_checkpoint = 0;
                 walk.dirty = false;
+                walk.checkpoint_on_disk = Some((walk.last_page, walk.posts.len()));
             }
         }
 
@@ -348,7 +362,8 @@ impl DownloadService {
         let mut long_texts_done = 0;
         for raw in candidates {
             let top_level_long_text = if needs_long_text(&raw) {
-                let text = fetch_long_text(context, walk, &raw.mblogid).await?;
+                let says_it_is_long = raw.is_long_text == Some(true);
+                let text = fetch_long_text(context, walk, &raw.mblogid, says_it_is_long).await?;
                 long_texts_done += 1;
                 context.report_page(
                     walk,
@@ -362,7 +377,8 @@ impl DownloadService {
 
             let retweeted_long_text = match raw.retweeted_status.as_deref() {
                 Some(retweeted) if needs_long_text(retweeted) => {
-                    let text = fetch_long_text(context, walk, &retweeted.mblogid).await?;
+                    let says_it_is_long = retweeted.is_long_text == Some(true);
+                    let text = fetch_long_text(context, walk, &retweeted.mblogid, says_it_is_long).await?;
                     long_texts_done += 1;
                     context.report_page(
                         walk,
@@ -498,16 +514,17 @@ struct RunContext<'a, S: WeiboSource> {
 }
 
 impl<S: WeiboSource> RunContext<'_, S> {
-    /// `(current, total)` of the walk. With a date range Weibo's total says nothing about how many
-    /// posts are in range, so no total is reported and the UI shows page and post counts instead.
+    /// `(current, total)` of the walk. No total is reported, so the UI shows page and post counts
+    /// instead of a percentage, when a date range makes Weibo's total meaningless or when Weibo
+    /// reports none (favorites).
     fn progress(&self, walk: &WalkState) -> (usize, usize) {
         let ranged = self.request.date_range.start_timestamp.is_some()
             || self.request.date_range.end_timestamp.is_some();
         self.state.posts_exported.store(walk.posts.len(), Ordering::Relaxed);
-        if ranged {
+        if ranged || walk.api_total <= 0 {
             (walk.total_fetched, 0)
         } else {
-            let total = walk.api_total.max(0) as usize;
+            let total = walk.api_total as usize;
             (walk.total_fetched, total.max(walk.total_fetched))
         }
     }
@@ -548,6 +565,8 @@ struct WalkState {
     dirty: bool,
     last_checkpoint_at: Instant,
     posts_since_checkpoint: usize,
+    /// `(last_page, post count)` of the checkpoint that is really on disk, when there is one.
+    checkpoint_on_disk: Option<(usize, usize)>,
 }
 
 impl WalkState {
@@ -565,6 +584,7 @@ impl WalkState {
             dirty: false,
             last_checkpoint_at: Instant::now(),
             posts_since_checkpoint: 0,
+            checkpoint_on_disk: None,
         }
     }
 
@@ -595,6 +615,7 @@ impl WalkState {
         Self {
             existing_ids: bundle.posts.iter().map(|post| post.mblogid.clone()).collect(),
             last_page: checkpoint.last_page,
+            checkpoint_on_disk: Some((checkpoint.last_page, bundle.posts.len())),
             total_fetched: checkpoint.total_fetched,
             api_total: checkpoint.total_posts,
             long_text_failed: checkpoint.long_text_failed,
@@ -649,41 +670,95 @@ fn in_date_range(created_at: &str, starttime: Option<i64>, endtime: Option<i64>)
 }
 
 /// Fetches the full text of a long post. Losing the session or the user's patience must stop the
-/// run; anything else leaves this post truncated, is counted, and is reported at the end.
+/// run; a failed request leaves this post truncated, is counted, and is reported at the end.
+///
+/// Weibo also answers "no long text" for posts that were only asked because their text mentions
+/// "展开" or "全文". That is not a failure; it only counts when the post itself says it is long.
 async fn fetch_long_text<S: WeiboSource>(
     context: &RunContext<'_, S>,
     walk: &mut WalkState,
     mblogid: &str,
+    says_it_is_long: bool,
 ) -> Result<Option<String>, AppError> {
     match context.source.get_long_text(mblogid).await {
-        Ok(content) => Ok(Some(content)),
+        Ok(content @ Some(_)) => Ok(content),
+        Ok(None) if !says_it_is_long => Ok(None),
+        Ok(None) => {
+            record_long_text_failure(context, walk, mblogid, "微博没有返回全文");
+            Ok(None)
+        }
         Err(error @ (AppError::Cancelled | AppError::InvalidCookie | AppError::NotLoggedIn)) => Err(error),
         Err(error) => {
-            if walk.long_text_failed < MAX_LOGGED_LONG_TEXT_FAILURES {
-                let reason: String = error.to_string().chars().take(60).collect();
-                context.report_note(
-                    walk,
-                    &format!("长微博 {mblogid} 全文获取失败，已保留截断内容：{reason}"),
-                );
-            }
-            walk.long_text_failed += 1;
+            record_long_text_failure(context, walk, mblogid, &error.to_string());
             Ok(None)
         }
     }
 }
 
+fn record_long_text_failure<S: WeiboSource>(
+    context: &RunContext<'_, S>,
+    walk: &mut WalkState,
+    mblogid: &str,
+    reason: &str,
+) {
+    // Every failure is counted; only the first few are reported one by one.
+    if walk.long_text_failed < MAX_LOGGED_LONG_TEXT_FAILURES {
+        let reason: String = reason.chars().take(60).collect();
+        context.report_note(
+            walk,
+            &format!("长微博 {mblogid} 全文获取失败，已保留截断内容：{reason}"),
+        );
+    }
+    walk.long_text_failed += 1;
+}
+
+/// For an error screen: says that the walk's progress is on disk, when it is.
+fn report_progress_saved(sink: &dyn ProgressSink, walk: &WalkState) {
+    if let Some(message) = saved_progress_message(walk) {
+        sink.emit(ProgressPhase::FetchingPostList, walk.posts.len(), 0, &message);
+    }
+}
+
+fn saved_progress_message(walk: &WalkState) -> Option<String> {
+    let (last_page, saved) = walk.checkpoint_on_disk?;
+    Some(format!(
+        "进度已保存（已获取 {saved} 条微博），再次点击「开始下载」会从第 {} 页接着下载",
+        last_page + 1
+    ))
+}
+
 fn report_cancelled(sink: &dyn ProgressSink, walk: &WalkState) {
-    let saved_anything = !walk.posts.is_empty() || walk.last_page > 0;
-    let message = if saved_anything {
-        format!(
-            "进度已保存（已获取 {} 条微博），点击「继续下载」会从第 {} 页接着下载",
-            walk.posts.len(),
-            walk.last_page + 1
-        )
-    } else {
-        "已取消".to_string()
+    // `total` is 1 when a checkpoint is on disk. That is how the UI knows to offer "继续下载",
+    // even when pages were walked but no post kept.
+    let (message, resumable) = match saved_progress_message(walk) {
+        Some(message) => (message, 1),
+        None => ("已取消".to_string(), 0),
     };
-    sink.emit(ProgressPhase::Cancelled, walk.posts.len(), 0, &message);
+    let saved = walk.checkpoint_on_disk.map_or(0, |(_, saved)| saved);
+    sink.emit(ProgressPhase::Cancelled, saved, resumable, &message);
+}
+
+fn post_time(post: &WeiboPost) -> i64 {
+    parse_weibo_date_to_timestamp(&post.created_at)
+}
+
+/// Puts a profile timeline back in post-time order, newest first. A resumed walk reads one page
+/// again and appends what it finds, so posts that moved onto that page would otherwise land after
+/// older ones. Posts whose date cannot be parsed keep the place of their predecessor.
+fn in_timeline_order(posts: Vec<WeiboPost>) -> Vec<WeiboPost> {
+    let mut carried = i64::MAX;
+    let mut keyed: Vec<(i64, WeiboPost)> = posts
+        .into_iter()
+        .map(|post| {
+            let time = post_time(&post);
+            if time > 0 {
+                carried = time;
+            }
+            (carried, post)
+        })
+        .collect();
+    keyed.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    keyed.into_iter().map(|(_, post)| post).collect()
 }
 
 #[cfg(test)]
@@ -692,9 +767,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
+    use chrono::TimeZone;
+
     use super::*;
     use crate::models::{DateRange, RawPostUser};
-    use chrono::TimeZone;
 
     const UID: &str = "1234567890";
 
@@ -719,8 +795,10 @@ mod tests {
     /// A scripted stand-in for the Weibo API: one entry per page, plus per-post long text outcomes.
     struct FakeSource {
         pages: Vec<Vec<RawPost>>,
-        long_text: HashMap<String, Result<String, Failure>>,
+        long_text: HashMap<String, Result<Option<String>, Failure>>,
         fail_page_with: Option<(i64, Failure)>,
+        /// Presses the app's stop button just before answering this page.
+        cancel_on_page: Option<(i64, Arc<AppState>)>,
         requested_pages: Mutex<Vec<i64>>,
     }
 
@@ -730,6 +808,7 @@ mod tests {
                 pages,
                 long_text: HashMap::new(),
                 fail_page_with: None,
+                cancel_on_page: None,
                 requested_pages: Mutex::new(Vec::new()),
             }
         }
@@ -754,8 +833,16 @@ mod tests {
                     return Err(fake_error(failure));
                 }
             }
+            if let Some((at, state)) = &self.cancel_on_page {
+                if *at == page {
+                    state.cancel();
+                }
+            }
             match self.pages.get(page as usize - 1) {
-                Some(posts) => Ok((posts.clone(), (self.pages.len() * 3) as i64)),
+                Some(posts) => {
+                    let total = self.pages.iter().map(Vec::len).sum::<usize>() as i64;
+                    Ok((posts.clone(), total))
+                }
                 None => Ok((Vec::new(), 0)),
             }
         }
@@ -766,23 +853,27 @@ mod tests {
             _starttime: Option<i64>,
             _endtime: Option<i64>,
         ) -> Result<(Vec<RawPost>, i64), AppError> {
-            self.fetch_posts_page(UID, page).await
+            // Like the real client: Weibo reports no total for favorites.
+            let (posts, _) = self.fetch_posts_page(UID, page).await?;
+            Ok((posts, -1))
         }
 
-        async fn get_long_text(&self, mblogid: &str) -> Result<String, AppError> {
+        async fn get_long_text(&self, mblogid: &str) -> Result<Option<String>, AppError> {
             match self.long_text.get(mblogid) {
                 Some(Ok(text)) => Ok(text.clone()),
                 Some(Err(failure)) => Err(fake_error(*failure)),
-                None => Err(AppError::ApiError("没有长文".to_string())),
+                // What Weibo answers for a post that merely mentions "展开" or "全文".
+                None => Ok(None),
             }
         }
     }
 
-    /// Posts one day apart, newest first, so date ranges and early stops can be exercised.
-    fn post(index: usize) -> RawPost {
-        let date = chrono::NaiveDate::from_ymd_opt(2024, 6, 1).unwrap() - chrono::Duration::days(index as i64);
+    /// A post from `days_before` days before 2024-06-01.
+    fn post_dated(id: &str, days_before: i64) -> RawPost {
+        let date =
+            chrono::NaiveDate::from_ymd_opt(2024, 6, 1).unwrap() - chrono::Duration::days(days_before);
         RawPost {
-            mblogid: format!("p{index}"),
+            mblogid: id.to_string(),
             created_at: format!("{date} 12:00:00"),
             text: "正文内容".to_string(),
             is_long_text: Some(false),
@@ -791,6 +882,18 @@ mod tests {
                 screen_name: "测试博主".to_string(),
             }),
             ..Default::default()
+        }
+    }
+
+    /// Posts one day apart, newest first, so date ranges and early stops can be exercised.
+    fn post(index: usize) -> RawPost {
+        post_dated(&format!("p{index}"), index as i64)
+    }
+
+    fn undated(id: &str) -> RawPost {
+        RawPost {
+            created_at: " sometime ".to_string(),
+            ..post_dated(id, 0)
         }
     }
 
@@ -869,19 +972,37 @@ mod tests {
         }
     }
 
+    async fn run_on(
+        request: &DownloadRequest,
+        state: &Arc<AppState>,
+        source: &FakeSource,
+    ) -> (Result<DownloadOutcome, AppError>, Vec<ProgressEvent>) {
+        state.reset();
+        let sink = VecSink::default();
+        let result = DownloadService.run_with(request, state, source, &sink).await;
+        let events = sink.0.lock().unwrap().clone();
+        (result, events)
+    }
+
     async fn run(
         request: &DownloadRequest,
         source: &FakeSource,
     ) -> (Result<DownloadOutcome, AppError>, Arc<AppState>, Vec<ProgressEvent>) {
         let state = Arc::new(AppState::default());
-        let sink = VecSink::default();
-        let result = DownloadService.run_with(request, &state, source, &sink).await;
-        let events = sink.0.lock().unwrap().clone();
+        let (result, events) = run_on(request, &state, source).await;
         (result, state, events)
     }
 
     fn event(events: &[ProgressEvent], phase: ProgressPhase) -> Option<&ProgressEvent> {
         events.iter().find(|event| event.phase == phase)
+    }
+
+    fn list_progress(events: &[ProgressEvent]) -> Vec<(usize, usize)> {
+        events
+            .iter()
+            .filter(|event| matches!(event.phase, ProgressPhase::FetchingPostList))
+            .map(|event| (event.current, event.total))
+            .collect()
     }
 
     #[test]
@@ -908,6 +1029,25 @@ mod tests {
         assert!(!partial.is_complete());
     }
 
+    #[test]
+    fn timeline_order_is_newest_first_and_keeps_undated_posts_after_their_predecessor() {
+        let shuffled = vec![
+            undated("u"),
+            post_dated("p5", 5),
+            post_dated("p1", 1),
+            undated("v"),
+            post_dated("p3", 3),
+        ]
+        .into_iter()
+        .map(|raw| to_weibo_post(&raw, UID))
+        .collect();
+
+        let ordered = in_timeline_order(shuffled);
+
+        let ids: Vec<&str> = ordered.iter().map(|post| post.mblogid.as_str()).collect();
+        assert_eq!(ids, ["u", "p1", "v", "p3", "p5"]);
+    }
+
     #[tokio::test]
     async fn resuming_after_a_stop_saves_every_post() {
         let dir = temp_output_dir("resume");
@@ -925,7 +1065,11 @@ mod tests {
         assert_eq!((checkpoint.schema, checkpoint.last_page), (CHECKPOINT_SCHEMA, 2));
         assert_eq!(saved_ids(&dir), ["p0", "p1", "p2", "p3", "p4", "p5"]);
         let cancelled = event(&first_events, ProgressPhase::Cancelled).expect("the stop is reported");
-        assert_eq!(cancelled.current, 6, "the UI offers to continue only when something was saved");
+        assert_eq!(
+            (cancelled.current, cancelled.total),
+            (6, 1),
+            "saved posts, and 1 because a checkpoint is on disk and the UI may offer to continue"
+        );
         assert!(cancelled.message.contains("第 3 页"), "{}", cancelled.message);
 
         let (result, _, events) = run(&request(&dir), &FakeSource::new(pages)).await;
@@ -936,7 +1080,7 @@ mod tests {
         assert!(event(&events, ProgressPhase::Resuming).is_some());
         assert!(cache_in(&dir).checkpoint.is_none(), "a finished download is not resumable");
         assert!(
-            events.iter().any(|event| matches!(event.phase, ProgressPhase::FetchingPostList) && event.total == 12 && event.current > 0),
+            list_progress(&events).iter().any(|(current, total)| *total == 12 && *current > 0),
             "the list phase must report a real total"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -955,7 +1099,7 @@ mod tests {
                 long_text: HashMap::from([("p3".to_string(), Err(failure))]),
                 ..FakeSource::new(pages.clone())
             };
-            let (result, _, _) = run(&request(&dir), &broken).await;
+            let (result, _, events) = run(&request(&dir), &broken).await;
 
             match failure {
                 Failure::SessionExpired => assert!(matches!(result, Err(AppError::InvalidCookie)), "{name}"),
@@ -963,9 +1107,14 @@ mod tests {
                 other => panic!("{other:?} is not an auth failure"),
             }
             assert_eq!(saved_ids(&dir), ["p0", "p1", "p2"], "{name}: only the finished page may be saved");
+            // The error screen must tell the user that signing in again and restarting continues the download.
+            assert!(
+                events.iter().any(|event| event.message.contains("第 2 页接着下载")),
+                "{name}: the saved progress is announced"
+            );
 
             let restored = FakeSource {
-                long_text: HashMap::from([("p3".to_string(), Ok("完整的长微博全文".to_string()))]),
+                long_text: HashMap::from([("p3".to_string(), Ok(Some("完整的长微博全文".to_string())))]),
                 ..FakeSource::new(pages)
             };
             let (result, _, _) = run(&request(&dir), &restored).await;
@@ -986,7 +1135,7 @@ mod tests {
         pages[0][2] = long_post(2);
         let source = FakeSource {
             long_text: HashMap::from([
-                ("p0".to_string(), Ok("完整的长微博全文".to_string())),
+                ("p0".to_string(), Ok(Some("完整的长微博全文".to_string()))),
                 ("p2".to_string(), Err(Failure::Transient)),
             ]),
             ..FakeSource::new(pages)
@@ -1008,6 +1157,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_post_that_only_mentions_the_expand_keyword_is_not_a_failed_long_post() {
+        let dir = temp_output_dir("keyword-only");
+        let mut pages = timeline(1, 2);
+        pages[0][0] = RawPost {
+            text: "想象由此展开".to_string(),
+            ..post(0)
+        };
+        pages[0][1] = long_post(1);
+        // Weibo has no long text for either post.
+        let source = FakeSource::new(pages);
+
+        let (result, _, _) = run(&request(&dir), &source).await;
+        let outcome = result.unwrap();
+
+        assert_eq!(outcome.saved, 2);
+        assert_eq!(outcome.long_text_failed, 1, "only the post that says it is long is missing something");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn an_old_date_range_reaches_its_posts_however_many_newer_pages_come_first() {
         let dir = temp_output_dir("range");
         // Posts run back from 2024-06-01, so November 2023 sits behind 61 pages of newer posts.
@@ -1025,8 +1194,25 @@ mod tests {
         assert_eq!(outcome.stopped_early, None);
         assert_eq!(source.requested_pages().len(), 73, "stops on the first page entirely older than the range");
         assert!(
-            events.iter().all(|event| event.total == 0 || !matches!(event.phase, ProgressPhase::FetchingPostList)),
+            list_progress(&events).iter().all(|(_, total)| *total == 0),
             "with a date range the API total says nothing about how many posts are in range"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn favorites_show_no_percentage_because_weibo_reports_no_total() {
+        let dir = temp_output_dir("favorites");
+        let mut favorites = request(&dir);
+        favorites.source_type = SourceType::Favorites;
+
+        let (result, _, events) = run(&favorites, &FakeSource::new(timeline(3, 3))).await;
+
+        assert_eq!(result.unwrap().saved, 9);
+        assert!(cache_in(&dir).checkpoint.is_none());
+        assert!(
+            list_progress(&events).iter().all(|(_, total)| *total == 0),
+            "no total means no percentage: the first page must not read as 100%"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1131,7 +1317,154 @@ mod tests {
         assert!(matches!(result, Err(AppError::Cancelled)));
         assert!(cache::load_cache_bundle_sync(&dir.to_string_lossy()).is_err());
         let cancelled = event(&events, ProgressPhase::Cancelled).expect("the stop is reported");
-        assert_eq!(cancelled.current, 0);
+        assert_eq!((cancelled.current, cancelled.total), (0, 0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn no_resume_is_offered_when_the_checkpoint_cannot_be_written() {
+        let parent = temp_output_dir("unwritable");
+        // Nothing can be created below a regular file.
+        std::fs::write(parent.join("not-a-directory"), "").unwrap();
+        let dir = parent.join("not-a-directory").join("backup");
+        let source = FakeSource {
+            fail_page_with: Some((2, Failure::Cancelled)),
+            ..FakeSource::new(timeline(3, 3))
+        };
+
+        let (result, _, events) = run(&request(&dir), &source).await;
+
+        assert!(matches!(result, Err(AppError::Cancelled)));
+        let cancelled = event(&events, ProgressPhase::Cancelled).expect("the stop is reported");
+        assert_eq!(
+            (cancelled.current, cancelled.total),
+            (0, 0),
+            "nothing reached the disk, so there is nothing to continue from"
+        );
+        assert_eq!(cancelled.message, "已取消");
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[tokio::test]
+    async fn a_stop_in_the_middle_of_a_page_keeps_the_posts_before_it() {
+        let dir = temp_output_dir("mid-page");
+        let mut pages = timeline(3, 3);
+        pages[1][1] = long_post(4);
+        pages[1][2] = long_post(5);
+        let broken = FakeSource {
+            long_text: HashMap::from([
+                ("p4".to_string(), Ok(Some("p4 的全文".to_string()))),
+                ("p5".to_string(), Err(Failure::SessionExpired)),
+            ]),
+            ..FakeSource::new(pages.clone())
+        };
+
+        let (result, _, _) = run(&request(&dir), &broken).await;
+        assert!(matches!(result, Err(AppError::InvalidCookie)));
+        let checkpoint = cache_in(&dir).checkpoint.expect("a checkpoint");
+        assert_eq!(checkpoint.last_page, 1, "page 2 was not finished, so it does not count as handled");
+        assert_eq!(saved_ids(&dir), ["p0", "p1", "p2", "p3", "p4"]);
+
+        let restored = FakeSource {
+            long_text: HashMap::from([
+                ("p4".to_string(), Ok(Some("p4 的全文".to_string()))),
+                ("p5".to_string(), Ok(Some("p5 的全文".to_string()))),
+            ]),
+            ..FakeSource::new(pages)
+        };
+        let (result, _, _) = run(&request(&dir), &restored).await;
+
+        assert_eq!(result.unwrap().saved, 9);
+        assert_eq!(
+            saved_ids(&dir),
+            ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
+            "the interrupted page is walked again without duplicates"
+        );
+        assert_eq!(cache_in(&dir).posts[5].text, "p5 的全文");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn stopping_while_images_download_resumes_without_walking_the_timeline_again() {
+        let dir = temp_output_dir("images-resume");
+        let state = Arc::new(AppState::default());
+        let mut pages = timeline(4, 3);
+        pages[3][2] = with_image(post(11));
+        let mut with_pictures = request(&dir);
+        with_pictures.include_images = true;
+        // The timeline is saved once the second empty page is seen, so stopping right then only
+        // interrupts the images.
+        let stopping = FakeSource {
+            cancel_on_page: Some((6, Arc::clone(&state))),
+            ..FakeSource::new(pages.clone())
+        };
+
+        let (result, events) = run_on(&with_pictures, &state, &stopping).await;
+
+        assert!(matches!(result, Err(AppError::Cancelled)));
+        let checkpoint = cache_in(&dir).checkpoint.expect("a checkpoint");
+        assert_eq!((checkpoint.last_page, checkpoint.schema), (4, CHECKPOINT_SCHEMA));
+        assert_eq!(saved_ids(&dir).len(), 12);
+        let cancelled = event(&events, ProgressPhase::Cancelled).expect("the stop is reported");
+        assert_eq!(cancelled.total, 1);
+
+        let (result, _, events) = run(&with_pictures, &FakeSource::new(pages)).await;
+        let outcome = result.unwrap();
+
+        assert_eq!(outcome.resumed_from_page, Some(5));
+        assert!(event(&events, ProgressPhase::Resuming).is_some());
+        assert_eq!(outcome.image_failed, 1, "the image that could not be downloaded is still reported");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_post_deleted_upstream_during_a_pause_does_not_hide_its_neighbour() {
+        let dir = temp_output_dir("deleted-upstream");
+        let stopped = FakeSource {
+            fail_page_with: Some((3, Failure::Cancelled)),
+            ..FakeSource::new(timeline(4, 3))
+        };
+        assert!(run(&request(&dir), &stopped).await.0.is_err());
+
+        // p0 is gone from Weibo, so every later post moved up one slot: p6 now sits on page 2.
+        let remaining: Vec<RawPost> = timeline(4, 3).into_iter().flatten().skip(1).collect();
+        let pages: Vec<Vec<RawPost>> = remaining.chunks(3).map(|chunk| chunk.to_vec()).collect();
+
+        let (result, _, _) = run(&request(&dir), &FakeSource::new(pages)).await;
+
+        assert_eq!(
+            saved_ids(&dir),
+            ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11"],
+            "p6 moved onto the last saved page and must not be skipped"
+        );
+        assert_eq!(result.unwrap().saved, 12);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn posts_published_during_a_pause_that_reach_the_overlap_stay_in_timeline_order() {
+        let dir = temp_output_dir("new-upstream");
+        let stopped = FakeSource {
+            fail_page_with: Some((3, Failure::Cancelled)),
+            ..FakeSource::new(timeline(4, 3))
+        };
+        assert!(run(&request(&dir), &stopped).await.0.is_err());
+
+        // Four newer posts push the timeline down, so one of them now sits on page 2 next to p0.
+        let mut later: Vec<RawPost> = (0..4)
+            .map(|i| post_dated(&format!("n{i}"), i as i64 - 4))
+            .collect();
+        later.extend(timeline(4, 3).into_iter().flatten());
+        let pages: Vec<Vec<RawPost>> = later.chunks(3).map(|chunk| chunk.to_vec()).collect();
+
+        let (result, _, _) = run(&request(&dir), &FakeSource::new(pages)).await;
+
+        assert_eq!(result.unwrap().saved, 13);
+        assert_eq!(
+            saved_ids(&dir),
+            ["n3", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11"],
+            "the newer post is found on the overlap page and sorted to where it belongs"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

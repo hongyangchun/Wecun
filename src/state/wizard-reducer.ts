@@ -130,6 +130,7 @@ const PHASE_TEXT: Record<ProgressPhase, string> = {
   Error: "出错了",
   Cancelled: "已取消",
   Resuming: "正在恢复下载",
+  Retrying: "正在重试",
 };
 
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
@@ -262,6 +263,11 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       const { phase: p, current: c, total: t, message } = action;
       const phaseLabel = PHASE_TEXT[p] || message;
 
+      if (p === "Retrying") {
+        // A retried request is worth a line in the log, but it says nothing about how far the walk is.
+        return { ...state, phase: message, logs: appendLog(state.logs, message) };
+      }
+
       if (p === "Complete") {
         return {
           ...state,
@@ -279,8 +285,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
           processStatus: "cancelled",
           phase: phaseLabel,
           logs: appendLog(state.logs, message),
-          // Only a stop that saved something can be continued.
-          resumeHint: c > 0 ? message : null,
+          // `total` is the backend's flag that a checkpoint is on disk and the download can be continued.
+          resumeHint: t > 0 ? message : null,
         };
       }
 
@@ -321,7 +327,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         processStatus: "downloaded",
         progress: 100,
         phase: "下载完成",
-        outcome: action.outcome ?? null,
+        // Returning to the export grid, or finishing a profile analysis, must not hide what went wrong.
+        outcome: action.outcome ?? state.outcome ?? null,
       };
 
     case "PROCESS_COMPLETE":

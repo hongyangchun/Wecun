@@ -18,8 +18,8 @@ pub trait WeiboSource: Send + Sync {
         endtime: Option<i64>,
     ) -> impl Future<Output = Result<(Vec<RawPost>, i64), AppError>> + Send;
 
-    /// The full text of a long post.
-    fn get_long_text(&self, mblogid: &str) -> impl Future<Output = Result<String, AppError>> + Send;
+    /// The full text of a long post, or `None` when Weibo answers but the post has no long text.
+    fn get_long_text(&self, mblogid: &str) -> impl Future<Output = Result<Option<String>, AppError>> + Send;
 }
 
 /// Where a download reports progress. The app window listens; tests collect.

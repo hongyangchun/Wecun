@@ -104,7 +104,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         let url = Self::build_url(path, query);
 
         let (status, text) = self
-            .request_with_retry(path, progress_phase_for_path(path), || {
+            .request_with_retry(path, || {
                 let client = client.clone();
                 let url = url.clone();
                 let cookie = cookie.clone();
@@ -172,7 +172,7 @@ impl<R: Runtime> WeiboApiClient<R> {
 
         let cookie_owned = cookie.to_string();
         let (status, text) = self
-            .request_with_retry(path, ProgressPhase::FetchingUserInfo, || {
+            .request_with_retry(path, || {
                 let client = client.clone();
                 let url = url.clone();
                 let cookie = cookie_owned.clone();
@@ -195,7 +195,6 @@ impl<R: Runtime> WeiboApiClient<R> {
     async fn request_with_retry<F, Fut>(
         &self,
         path: &str,
-        phase: ProgressPhase,
         request_fn: F,
     ) -> Result<(StatusCode, String), AppError>
     where
@@ -223,7 +222,6 @@ impl<R: Runtime> WeiboApiClient<R> {
                     }
 
                     self.emit_retry_progress(
-                        phase.clone(),
                         &format!(
                             "请求 {path} 失败({status}: {})，正在重试({}/{})...",
                             text.chars().take(50).collect::<String>(),
@@ -247,7 +245,6 @@ impl<R: Runtime> WeiboApiClient<R> {
                     }
 
                     self.emit_retry_progress(
-                        phase.clone(),
                         &format!(
                             "请求 {path} 网络异常，正在重试({}/{})...",
                             attempt,
@@ -282,8 +279,8 @@ impl<R: Runtime> WeiboApiClient<R> {
         Ok((status, text))
     }
 
-    fn emit_retry_progress(&self, phase: ProgressPhase, message: &str) {
-        let _ = self.app.emit("download-progress", retry_progress_event(phase, message));
+    fn emit_retry_progress(&self, message: &str) {
+        let _ = self.app.emit("download-progress", retry_progress_event(message));
     }
 
     pub async fn get_user_info(&self, uid: &str) -> Result<UserProfile, AppError> {
@@ -510,21 +507,22 @@ impl<R: Runtime> WeiboApiClient<R> {
         Ok((list, total))
     }
 
-    pub async fn get_long_text(&self, mblogid: &str) -> Result<String, AppError> {
+    /// The full text of a long post, or `None` when Weibo answers but the post has no long text.
+    pub async fn get_long_text(&self, mblogid: &str) -> Result<Option<String>, AppError> {
         let raw: RawLongText = self
             .get_json("/ajax/statuses/longtext", &[("id", mblogid.to_string())])
             .await?;
 
         if !raw.data.long_text_content.is_empty() {
-            return Ok(raw.data.long_text_content);
+            return Ok(Some(raw.data.long_text_content));
         }
         if let Some(raw_text) = raw.data.raw_text {
             if !raw_text.is_empty() {
-                return Ok(raw_text);
+                return Ok(Some(raw_text));
             }
         }
 
-        Err(AppError::ApiError(format!("长微博内容为空: {mblogid}")))
+        Ok(None)
     }
 
     pub fn normalize_post(raw: &RawPost, uid: &str) -> WeiboPost {
@@ -699,7 +697,7 @@ impl<R: Runtime> WeiboSource for WeiboApiClient<R> {
         WeiboApiClient::<R>::fetch_favorites_page(self, page, starttime, endtime).await
     }
 
-    async fn get_long_text(&self, mblogid: &str) -> Result<String, AppError> {
+    async fn get_long_text(&self, mblogid: &str) -> Result<Option<String>, AppError> {
         WeiboApiClient::<R>::get_long_text(self, mblogid).await
     }
 }
@@ -733,21 +731,10 @@ fn extract_hashtags_from_text(text: &str) -> Vec<String> {
     result
 }
 
-/// Progress event for a retried request. The attempt counter is part of the message; `current` and
-/// `total` stay 0 so the UI keeps the walk's own progress instead of showing "attempt 1 of 3" as one.
-fn retry_progress_event(phase: ProgressPhase, message: &str) -> ProgressEvent {
-    ProgressEvent::new(phase, 0, 0, message)
-}
-
-fn progress_phase_for_path(path: &str) -> ProgressPhase {
-    match path {
-        "/ajax/profile/info" => ProgressPhase::FetchingUserInfo,
-        "/ajax/statuses/longtext" => ProgressPhase::FetchingLongText,
-        "/ajax/profile/mbloghistory" | "/ajax/statuses/searchProfile" => {
-            ProgressPhase::FetchingPostList
-        }
-        _ => ProgressPhase::FetchingPostList,
-    }
+/// Progress event for a retried request. It is its own phase so the UI can log it without moving
+/// the progress bar; the attempt counter is part of the message.
+fn retry_progress_event(message: &str) -> ProgressEvent {
+    ProgressEvent::new(ProgressPhase::Retrying, 0, 0, message)
 }
 
 fn is_retryable_status(status: StatusCode) -> bool {
@@ -1016,10 +1003,9 @@ mod tests {
 
     #[test]
     fn retry_progress_does_not_look_like_a_percentage() {
-        let event = super::retry_progress_event(
-            crate::models::ProgressPhase::FetchingPostList,
-            "正在重试(1/3)...",
-        );
+        let event = super::retry_progress_event("正在重试(1/3)...");
+
+        assert!(matches!(event.phase, crate::models::ProgressPhase::Retrying));
 
         assert_eq!(
             (event.current, event.total),
