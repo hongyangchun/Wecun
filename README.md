@@ -9,6 +9,8 @@
 - 🖼️ 可选是否包含图片
 - 📅 可选全部微博或指定时间段内的微博
 - 📄 导出为多种格式：HTML、Markdown（单文件）、Markdown（Obsidian兼容）、Markdown（分文件）
+- 🔄 增量更新：保存目录里已有同一博主的备份时，只补上新发的微博
+- 📊 画像分析：本地统计图表；可选的 AI 深度画像，需要在应用里填写 DeepSeek API Key
 - 🪟 支持 Windows、macOS（Apple Silicon & Intel）和 Linux
 
 ## 快速开始
