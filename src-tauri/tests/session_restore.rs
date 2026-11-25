@@ -69,3 +69,23 @@ fn detects_logged_out_html_shell() {
 
     assert!(is_auth_invalid_response(StatusCode::OK, body));
 }
+
+#[test]
+fn a_bare_forbidden_response_is_not_treated_as_a_lost_login() {
+    // Weibo also answers 403 and 418 when it throttles or wants a captcha. Logging the user out for
+    // that throws away a session that is still valid.
+    assert!(!is_auth_invalid_response(
+        StatusCode::FORBIDDEN,
+        r#"{"code":10000,"message":"访问过于频繁"}"#
+    ));
+    assert!(!is_auth_invalid_response(
+        StatusCode::from_u16(418).unwrap(),
+        "<html>访问过于频繁</html>"
+    ));
+
+    // The body still decides: a 403 that carries the sign-in redirect is a lost login.
+    assert!(is_auth_invalid_response(
+        StatusCode::FORBIDDEN,
+        r#"<html><head><meta http-equiv=\"refresh\" content=\"0; url='https://passport.weibo.com/sso/signin?retcode=6102'\"/></head></html>"#
+    ));
+}

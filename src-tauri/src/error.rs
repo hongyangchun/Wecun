@@ -14,6 +14,9 @@ pub enum AppError {
     InvalidCookie,
     #[error("请先登录微博")]
     NotLoggedIn,
+    /// Weibo refused a request without saying anything about the login: throttling, or a captcha it wants first.
+    #[error("{0}")]
+    Blocked(String),
     #[error("User not found: {0}")]
     UserNotFound(String),
     #[error("API error: {0}")]

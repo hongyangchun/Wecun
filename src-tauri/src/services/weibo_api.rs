@@ -3,11 +3,10 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use reqwest::StatusCode;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-use tokio::sync::Mutex;
 
 use crate::error::AppError;
 use crate::models::{
@@ -19,7 +18,6 @@ use crate::state::AppState;
 
 const LOGIN_WINDOW_LABEL: &str = "weibo-login";
 const WEIBO_BASE: &str = "https://weibo.com";
-const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1000);
 const COOKIE_FILE_NAME: &str = "cookie.json";
 
 #[derive(Debug, Clone)]
@@ -41,36 +39,19 @@ impl Default for RetryConfig {
 
 pub struct WeiboApiClient<R: Runtime> {
     app: AppHandle<R>,
-    last_fetch: Mutex<Option<Instant>>,
 }
 
 impl<R: Runtime> WeiboApiClient<R> {
     pub fn new(app: AppHandle<R>) -> Self {
-        Self {
-            app,
-            last_fetch: Mutex::new(None),
-        }
+        Self { app }
     }
 
+    /// Every request to Weibo takes its turn here, whichever command it belongs to.
     async fn throttle(&self) -> Result<(), AppError> {
-        let sleep_duration = {
-            let mut guard = self.last_fetch.lock().await;
-            let wait = guard.and_then(|last| remaining_throttle_delay(last.elapsed(), MIN_REQUEST_INTERVAL));
-            if wait.is_none() {
-                *guard = Some(Instant::now());
-            }
-            wait
-        };
-
-        if let Some(duration) = sleep_duration {
-            let state = self.app.state::<AppState>();
-            if state.sleep_cancellable(duration).await {
-                return Err(AppError::Cancelled);
-            }
-            let mut guard = self.last_fetch.lock().await;
-            *guard = Some(Instant::now());
+        let state = self.app.state::<AppState>();
+        if state.wait_for_request_slot().await {
+            return Err(AppError::Cancelled);
         }
-
         Ok(())
     }
 
@@ -137,6 +118,12 @@ impl<R: Runtime> WeiboApiClient<R> {
             clear_saved_cookie(&self.app);
             let _ = self.app.emit("login-invalid", "登录已失效，请重新登录");
             return Err(AppError::InvalidCookie);
+        }
+
+        // Weibo also refuses requests it finds too frequent, or wants a captcha first, without
+        // saying anything about the login. That must not log the user out.
+        if is_blocked_status(status) {
+            return Err(AppError::Blocked(blocked_message(status, path)));
         }
 
         if !status.is_success() {
@@ -404,6 +391,8 @@ impl<R: Runtime> WeiboApiClient<R> {
             uid: Option<serde_json::Value>,
         }
 
+        self.throttle().await.ok()?;
+
         let state = self.app.state::<AppState>();
         let client = state.get_client();
         let resp = client
@@ -433,6 +422,8 @@ impl<R: Runtime> WeiboApiClient<R> {
     }
 
     async fn fetch_uid_from_weibo_home(&self, cookie: &str) -> Option<String> {
+        self.throttle().await.ok()?;
+
         let state = self.app.state::<AppState>();
         let client = state.get_client();
         let resp = client
@@ -735,15 +726,23 @@ fn retry_progress_event(message: &str) -> ProgressEvent {
 }
 
 fn is_retryable_status(status: StatusCode) -> bool {
-    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+    status == StatusCode::TOO_MANY_REQUESTS || is_blocked_status(status) || status.is_server_error()
+}
+
+/// HTTP statuses Weibo uses to refuse a request without saying anything about the login.
+fn is_blocked_status(status: StatusCode) -> bool {
+    status == StatusCode::FORBIDDEN || status.as_u16() == 418
+}
+
+pub fn blocked_message(status: StatusCode, path: &str) -> String {
+    format!(
+        "微博拒绝了请求（HTTP {}，{path}），可能是访问过于频繁或需要先完成验证。进度已保存，登录状态没有改变，请稍后再试",
+        status.as_u16()
+    )
 }
 
 fn is_network_error(error: &AppError) -> bool {
     matches!(error, AppError::Network(_))
-}
-
-fn remaining_throttle_delay(elapsed: Duration, min_interval: Duration) -> Option<Duration> {
-    min_interval.checked_sub(elapsed).filter(|d| !d.is_zero())
 }
 
 fn preview_str(text: &str, max_chars: usize) -> String {
@@ -849,8 +848,9 @@ pub fn restore_saved_cookie<R: Runtime>(app: &AppHandle<R>, state: &AppState) ->
 pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool {
     let body_lower = body.to_ascii_lowercase();
 
-    // Check for HTTP status codes that indicate auth failure
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+    // 401 means there is no session. 403 does not: Weibo also answers 403 and 418 when it throttles
+    // or wants a captcha, so a lost login has to show in the body (the checks below).
+    if status == reqwest::StatusCode::UNAUTHORIZED {
         return true;
     }
 
@@ -922,7 +922,10 @@ pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_retryable_status, preview_str, remaining_throttle_delay, retry_delay, RetryConfig};
+    use reqwest::StatusCode;
+
+    use super::{is_retryable_status, preview_str, retry_delay, RetryConfig};
+    use crate::state::remaining_throttle_delay;
     use std::time::Duration;
 
     #[test]
@@ -978,8 +981,23 @@ mod tests {
         assert!(is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
         assert!(is_retryable_status(reqwest::StatusCode::SERVICE_UNAVAILABLE));
         assert!(!is_retryable_status(reqwest::StatusCode::UNAUTHORIZED));
-        assert!(!is_retryable_status(reqwest::StatusCode::FORBIDDEN));
+        // 403 and 418 are how Weibo throttles: worth another try after a pause, unlike a lost login.
+        assert!(is_retryable_status(reqwest::StatusCode::FORBIDDEN));
+        assert!(is_retryable_status(reqwest::StatusCode::from_u16(418).unwrap()));
         assert!(!is_retryable_status(reqwest::StatusCode::BAD_REQUEST));
+    }
+
+    #[test]
+    fn a_refused_request_keeps_the_login_and_says_so() {
+        let forbidden = StatusCode::from_u16(403).unwrap();
+
+        let message = super::blocked_message(forbidden, "/ajax/statuses/longtext");
+
+        assert!(message.contains("403") && message.contains("登录状态没有改变"), "{message}");
+        assert!(!message.contains("重新登录"), "{message}");
+        assert!(super::is_blocked_status(StatusCode::from_u16(418).unwrap()));
+        assert!(!super::is_blocked_status(StatusCode::UNAUTHORIZED));
+        assert!(!super::is_blocked_status(StatusCode::OK));
     }
 
     #[test]
