@@ -148,5 +148,24 @@ describe("validation utilities", () => {
         source_type: "profile",
       });
     });
+
+    it("ignores the date range for favorites, which has no range control", () => {
+      expect(
+        buildDownloadRequest({
+          uid: "",
+          cookie: "SUB=cookie;",
+          filter: "all",
+          includeImages: false,
+          downloadRange: "range",
+          dateStart: "2024-01-01",
+          dateEnd: "2024-01-31",
+          outputDir: "/tmp/weibo",
+          ignoreDeleted: false,
+          minTextLength: 0,
+          limit: 1000,
+          sourceType: "favorites",
+        }).date_range,
+      ).toEqual({ start_timestamp: null, end_timestamp: null });
+    });
   });
 });

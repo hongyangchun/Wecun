@@ -14,6 +14,7 @@ use crate::models::{
     ProgressEvent, ProgressPhase, RawHistoryMap, RawLongText, RawPost, RawSearchProfile, RawFavProfile,
     RawUserInfo, UserProfile, WeiboImage, WeiboPost,
 };
+use crate::services::source::WeiboSource;
 use crate::state::AppState;
 
 const LOGIN_WINDOW_LABEL: &str = "weibo-login";
@@ -96,7 +97,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         let state = self.app.state::<AppState>();
         let cookie = state.get_cookie();
         if cookie.is_empty() {
-            return Err(AppError::ApiError("请先登录".to_string()));
+            return Err(AppError::NotLoggedIn);
         }
 
         let client = state.get_client();
@@ -162,7 +163,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         self.throttle().await?;
 
         if cookie.is_empty() {
-            return Err(AppError::ApiError("请先登录".to_string()));
+            return Err(AppError::NotLoggedIn);
         }
 
         let state = self.app.state::<AppState>();
@@ -223,8 +224,6 @@ impl<R: Runtime> WeiboApiClient<R> {
 
                     self.emit_retry_progress(
                         phase.clone(),
-                        attempt,
-                        retry_config.max_retries,
                         &format!(
                             "请求 {path} 失败({status}: {})，正在重试({}/{})...",
                             text.chars().take(50).collect::<String>(),
@@ -249,8 +248,6 @@ impl<R: Runtime> WeiboApiClient<R> {
 
                     self.emit_retry_progress(
                         phase.clone(),
-                        attempt,
-                        retry_config.max_retries,
                         &format!(
                             "请求 {path} 网络异常，正在重试({}/{})...",
                             attempt,
@@ -285,17 +282,8 @@ impl<R: Runtime> WeiboApiClient<R> {
         Ok((status, text))
     }
 
-    fn emit_retry_progress(
-        &self,
-        phase: ProgressPhase,
-        current: u32,
-        total: u32,
-        message: &str,
-    ) {
-        let _ = self.app.emit(
-            "download-progress",
-            ProgressEvent::new(phase, current as usize, total as usize, message),
-        );
+    fn emit_retry_progress(&self, phase: ProgressPhase, message: &str) {
+        let _ = self.app.emit("download-progress", retry_progress_event(phase, message));
     }
 
     pub async fn get_user_info(&self, uid: &str) -> Result<UserProfile, AppError> {
@@ -332,7 +320,7 @@ impl<R: Runtime> WeiboApiClient<R> {
     /// 3. Legacy `/ajax/config/info` fallback
     pub async fn get_current_user_info_with_cookie(&self, cookie: &str) -> Result<UserProfile, AppError> {
         if cookie.trim().is_empty() {
-            return Err(AppError::ApiError("请先登录".to_string()));
+            return Err(AppError::NotLoggedIn);
         }
 
         // Strategy 1: m.weibo.cn/api/config reliably returns logged-in uid
@@ -687,6 +675,35 @@ impl<R: Runtime> WeiboApiClient<R> {
     }
 }
 
+/// Converts one raw post into the normalized shape the app stores and exports.
+pub fn to_weibo_post(raw: &RawPost, uid: &str) -> WeiboPost {
+    // The conversion does not depend on the webview runtime, so any concrete client can do the work.
+    WeiboApiClient::<tauri::Wry>::normalize_post(raw, uid)
+}
+
+impl<R: Runtime> WeiboSource for WeiboApiClient<R> {
+    async fn get_user_info(&self, uid: &str) -> Result<UserProfile, AppError> {
+        WeiboApiClient::<R>::get_user_info(self, uid).await
+    }
+
+    async fn fetch_posts_page(&self, uid: &str, page: i64) -> Result<(Vec<RawPost>, i64), AppError> {
+        WeiboApiClient::<R>::fetch_posts_page(self, uid, page, None, None).await
+    }
+
+    async fn fetch_favorites_page(
+        &self,
+        page: i64,
+        starttime: Option<i64>,
+        endtime: Option<i64>,
+    ) -> Result<(Vec<RawPost>, i64), AppError> {
+        WeiboApiClient::<R>::fetch_favorites_page(self, page, starttime, endtime).await
+    }
+
+    async fn get_long_text(&self, mblogid: &str) -> Result<String, AppError> {
+        WeiboApiClient::<R>::get_long_text(self, mblogid).await
+    }
+}
+
 fn extract_hashtags_from_text(text: &str) -> Vec<String> {
     let mut result = Vec::new();
     let chars: Vec<char> = text.chars().collect();
@@ -714,6 +731,12 @@ fn extract_hashtags_from_text(text: &str) -> Vec<String> {
     }
 
     result
+}
+
+/// Progress event for a retried request. The attempt counter is part of the message; `current` and
+/// `total` stay 0 so the UI keeps the walk's own progress instead of showing "attempt 1 of 3" as one.
+fn retry_progress_event(phase: ProgressPhase, message: &str) -> ProgressEvent {
+    ProgressEvent::new(phase, 0, 0, message)
 }
 
 fn progress_phase_for_path(path: &str) -> ProgressPhase {
@@ -989,6 +1012,21 @@ mod tests {
         };
         assert_eq!(retry_delay(&capped, 2), Duration::from_secs(30));
         assert_eq!(retry_delay(&capped, 5), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn retry_progress_does_not_look_like_a_percentage() {
+        let event = super::retry_progress_event(
+            crate::models::ProgressPhase::FetchingPostList,
+            "正在重试(1/3)...",
+        );
+
+        assert_eq!(
+            (event.current, event.total),
+            (0, 0),
+            "the attempt counter belongs in the message, not in the progress bar"
+        );
+        assert!(event.message.contains("1/3"));
     }
 }
 

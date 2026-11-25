@@ -4,6 +4,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import type {
+  DownloadOutcome,
   DownloadRequest,
   ExportRequest,
   ProgressEvent,
@@ -43,8 +44,8 @@ export interface AppUpdate {
   downloadAndInstall: (onEvent: (event: UpdateProgressEvent) => void) => Promise<void>;
 }
 
-export async function startDownload(request: DownloadRequest): Promise<string> {
-  return await invoke<string>("start_download", { request });
+export async function startDownload(request: DownloadRequest): Promise<DownloadOutcome> {
+  return await invoke<DownloadOutcome>("start_download", { request });
 }
 
 export async function exportPosts(request: ExportRequest): Promise<string> {

@@ -1,4 +1,4 @@
-import type { PostFilter, DownloadRange, ExportFormat, ProgressPhase } from "../types/contracts";
+import type { PostFilter, DownloadRange, DownloadOutcome, ExportFormat, ProgressPhase } from "../types/contracts";
 
 // Get today's date in YYYY-MM-DD format for the default end date
 function getTodayDate(): string {
@@ -40,6 +40,10 @@ export interface WizardState {
   errorMessage?: string;
   logs: string[];
   sourceType: "profile" | "favorites";
+  /** What the last finished download actually produced. */
+  outcome?: DownloadOutcome | null;
+  /** The backend's "your progress is saved" message for a stopped download that can be continued. */
+  resumeHint?: string | null;
 }
 
 export const INITIAL_STATE: WizardState = {
@@ -100,7 +104,7 @@ export type WizardAction =
   | { type: "SET_SOURCE_TYPE"; sourceType: "profile" | "favorites" }
   | { type: "START_PROCESSING" }
   | { type: "UPDATE_PROGRESS"; phase: ProgressPhase; current: number; total: number; message: string }
-  | { type: "DOWNLOAD_COMPLETE" }
+  | { type: "DOWNLOAD_COMPLETE"; outcome?: DownloadOutcome }
   | { type: "EXPORT_START" }
   | { type: "PROCESS_COMPLETE" }
   | { type: "PROCESS_ERROR"; message: string }
@@ -248,6 +252,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         current: 0,
         total: 0,
         errorMessage: undefined,
+        outcome: null,
+        resumeHint: null,
         exportedFormats: [],
         logs: ["开始下载..."],
       };
@@ -273,6 +279,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
           processStatus: "cancelled",
           phase: phaseLabel,
           logs: appendLog(state.logs, message),
+          // Only a stop that saved something can be continued.
+          resumeHint: c > 0 ? message : null,
         };
       }
 
@@ -286,7 +294,9 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         };
       }
 
-      const pct = p === "FetchingPostList" ? 0 : (t > 0 ? Math.round((c / t) * 100) : 0);
+      // Pages are fetched and processed one by one, so the list phase has a real total whenever
+      // Weibo reports one. `total` is 0, and no percentage is shown, when a date range makes it meaningless.
+      const pct = t > 0 ? Math.round((c / t) * 100) : 0;
       return {
         ...state,
         progress: pct,
@@ -311,6 +321,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         processStatus: "downloaded",
         progress: 100,
         phase: "下载完成",
+        outcome: action.outcome ?? null,
       };
 
     case "PROCESS_COMPLETE":
@@ -344,6 +355,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         current: 0,
         total: 0,
         errorMessage: undefined,
+        outcome: null,
+        resumeHint: null,
         exportedFormats: [],
         logs: [],
       };

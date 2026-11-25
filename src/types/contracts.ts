@@ -23,6 +23,15 @@ export interface ExportRequest {
   export_format: ExportFormat;
 }
 
+/** What a download run actually produced. Any non-zero field means the backup is missing something. */
+export interface DownloadOutcome {
+  saved: number;
+  longTextFailed: number;
+  imageFailed: number;
+  resumedFromPage: number | null;
+  stoppedEarly: string | null;
+}
+
 export type ProgressPhase =
   | "FetchingUserInfo"
   | "FetchingPostList"

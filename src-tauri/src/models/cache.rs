@@ -32,6 +32,17 @@ pub struct CheckpointMeta {
     pub start_timestamp: Option<i64>,
     #[serde(default)]
     pub end_timestamp: Option<i64>,
+    /// Checkpoint format version. Checkpoints written before downloads processed pages one by one
+    /// recorded the last *fetched* page, so resuming them skipped unprocessed posts.
+    #[serde(default)]
+    pub schema: u32,
+    #[serde(default)]
+    pub min_text_length: usize,
+    #[serde(default)]
+    pub ignore_deleted: bool,
+    /// Long texts that failed in earlier sessions of this download, so the final report stays honest.
+    #[serde(default)]
+    pub long_text_failed: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

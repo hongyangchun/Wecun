@@ -74,14 +74,16 @@ export interface FormValues {
 }
 
 export function buildDownloadRequest(values: FormValues): DownloadRequest {
+  // Favorites has no date range control, so it must not inherit the range picked under "profile".
+  const ranged = values.sourceType === "profile" && values.downloadRange === "range";
   return {
     uid: values.uid.trim(),
     cookie: values.cookie.trim(),
     filter: values.filter,
     include_images: values.includeImages,
     date_range: {
-      start_timestamp: values.downloadRange === "range" ? dateToStartTimestamp(values.dateStart) : null,
-      end_timestamp: values.downloadRange === "range" ? dateToEndTimestamp(values.dateEnd) : null,
+      start_timestamp: ranged ? dateToStartTimestamp(values.dateStart) : null,
+      end_timestamp: ranged ? dateToEndTimestamp(values.dateEnd) : null,
     },
     output_dir: values.outputDir,
     ignore_deleted: values.ignoreDeleted,

@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, memo } from "react";
 import { LogPanel, ProgressRing } from "./ui";
 import { DONATION_CONFIG } from "../lib/app-config";
+import { describeDownloadIssues } from "../lib/outcome";
 import type { ProcessStatus } from "../state/wizard-reducer";
-import type { ExportFormat } from "../types/contracts";
+import type { DownloadOutcome, ExportFormat } from "../types/contracts";
 
 // 复用样式常量 - 避免每次渲染创建新对象
 const riskWarningStyle: React.CSSProperties = {
@@ -19,6 +20,14 @@ const statBoxStyle: React.CSSProperties = {
   background: "var(--color-bg-inset)",
   marginBottom: 16,
   border: "1px solid var(--color-border-subtle)",
+};
+
+const warningBoxStyle: React.CSSProperties = {
+  marginBottom: 16,
+  padding: "10px 12px",
+  borderRadius: 8,
+  background: "rgba(255, 159, 10, 0.1)",
+  border: "1px solid rgba(255, 159, 10, 0.35)",
 };
 
 const exportButtonStyle: React.CSSProperties = {
@@ -40,6 +49,10 @@ interface StepProcessingProps {
   total: number;
   errorMessage?: string;
   exportedFormats?: ExportFormat[];
+  outcome?: DownloadOutcome | null;
+  /** Set when a stopped download saved progress and can be continued. */
+  resumeHint?: string | null;
+  onResume?: () => void;
   logs: string[];
   onStop: () => void;
   onReset: () => void;
@@ -61,6 +74,9 @@ const StepProcessingComponent = ({
   total,
   errorMessage,
   exportedFormats = [],
+  outcome = null,
+  resumeHint = null,
+  onResume,
   logs,
   onStop,
   onReset,
@@ -113,6 +129,7 @@ const StepProcessingComponent = ({
     riskKeywordCounts.forbidden >= 1;
 
   const latestLog = logs.length > 0 ? logs[logs.length - 1] : "";
+  const issues = outcome ? describeDownloadIssues(outcome) : [];
 
   const renderLog = () => {
     if (logs.length === 0) return null;
@@ -225,14 +242,29 @@ const StepProcessingComponent = ({
             </div>
 
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>
-              微博已下载完成，可选择格式导出
+              {issues.length > 0 ? "下载已结束，但有以下内容没能拿全：" : "微博已下载完成，可选择格式导出"}
             </p>
 
-            {total > 0 && (
+            {issues.length > 0 && (
+              <div style={warningBoxStyle} role="alert">
+                {issues.map((issue) => (
+                  <p key={issue} style={{ fontSize: 13, color: "var(--color-text)", lineHeight: 1.6 }}>
+                    {issue}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {(outcome?.saved ?? total) > 0 && (
               <div style={statBoxStyle}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
-                  共处理 {total} 条微博
+                  共保存 {outcome?.saved ?? total} 条微博
                 </div>
+                {outcome?.resumedFromPage && (
+                  <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 4 }}>
+                    本次从第 {outcome.resumedFromPage} 页继续下载，数量包含之前已保存的微博
+                  </div>
+                )}
               </div>
             )}
 
@@ -388,10 +420,21 @@ const StepProcessingComponent = ({
               <h2 className="processing-title">已取消</h2>
             </div>
 
+            {resumeHint && onResume && (
+              <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 12, lineHeight: 1.6 }}>
+                {resumeHint}
+              </p>
+            )}
+
             {renderLog()}
 
-            <div style={{ marginTop: 16 }}>
-              <button className="btn btn-primary" style={{ width: "100%" }} onClick={onReset} type="button">
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              {resumeHint && onResume && (
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={onResume} type="button">
+                  继续下载
+                </button>
+              )}
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onReset} type="button">
                 返回
               </button>
             </div>

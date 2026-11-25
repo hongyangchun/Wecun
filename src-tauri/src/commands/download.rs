@@ -1,10 +1,8 @@
-use std::sync::atomic::Ordering;
-
 use tauri::{Emitter, State};
 
 use crate::error::AppError;
 use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase, UserProfile};
-use crate::services::downloader::DownloadService;
+use crate::services::pipeline::{DownloadOutcome, DownloadService};
 use crate::services::export_html::HtmlExportService;
 use crate::services::export_markdown::MarkdownExportService;
 use crate::services::export_profile::ProfileExportService;
@@ -27,7 +25,7 @@ pub async fn start_download(
     request: DownloadRequest,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<DownloadOutcome, String> {
     if request.source_type == crate::models::SourceType::Profile && request.uid.trim().is_empty() {
         return Err("用户ID不能为空".to_string());
     }
@@ -38,26 +36,25 @@ pub async fn start_download(
         return Err("请选择保存目录".to_string());
     }
 
-    state.reset();
+    // Downloads share the cancel flag, the counters and the checkpoint file, so only one may run.
+    let Some(_run_guard) = state.try_begin_run() else {
+        return Err("已有下载任务正在进行".to_string());
+    };
 
     let service = DownloadService::new();
-    match service.run(&request, &state, &app).await {
-        Ok(_user) => {
-            let count = state.posts_exported.load(Ordering::Relaxed);
-            let _ = app.emit(
-                "download-progress",
-                ProgressEvent::new(
-                    ProgressPhase::Complete,
-                    count,
-                    count,
-                    &format!("下载完成！共 {} 条微博", count),
-                ),
-            );
-            Ok(format!("下载完成！共 {} 条微博", count))
-        }
-        Err(AppError::Cancelled) => Err("已取消下载".to_string()),
-        Err(e) => Err(format!("下载失败: {e}")),
-    }
+    let outcome = match service.run(&request, &state, &app).await {
+        Ok(outcome) => outcome,
+        Err(AppError::Cancelled) => return Err("已取消下载".to_string()),
+        Err(e) => return Err(format!("下载失败: {e}")),
+    };
+
+    let summary = outcome.summary();
+    let _ = app.emit(
+        "download-progress",
+        ProgressEvent::new(ProgressPhase::Complete, outcome.saved, outcome.saved, &summary),
+    );
+
+    Ok(outcome)
 }
 
 #[tauri::command]

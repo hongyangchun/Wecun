@@ -12,6 +12,8 @@ pub enum AppError {
     Cancelled,
     #[error("登录已失效，请重新登录")]
     InvalidCookie,
+    #[error("请先登录微博")]
+    NotLoggedIn,
     #[error("User not found: {0}")]
     UserNotFound(String),
     #[error("API error: {0}")]

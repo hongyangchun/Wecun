@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::TimeZone;
 use wecun_lib::models::{DateRange, DownloadRequest, PostFilter, SourceType};
-use wecun_lib::services::downloader::DownloadService;
+use wecun_lib::services::pipeline::DownloadService;
 use wecun_lib::services::export_markdown::MarkdownExportService;
 use wecun_lib::services::cache;
 use wecun_lib::services::markdown_export_filename;

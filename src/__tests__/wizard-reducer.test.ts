@@ -32,7 +32,7 @@ const progressCases: Array<{
   phaseLabel: string;
 }> = [
   { phase: "FetchingUserInfo", current: 1, total: 4, message: "获取用户信息中", progress: 25, phaseLabel: "正在获取用户信息" },
-  { phase: "FetchingPostList", current: 3, total: 9, message: "已抓取第 3 页", progress: 0, phaseLabel: "已抓取第 3 页" },
+  { phase: "FetchingPostList", current: 3, total: 9, message: "已抓取第 3 页", progress: 33, phaseLabel: "已抓取第 3 页" },
   { phase: "FetchingLongText", current: 2, total: 5, message: "长文处理中", progress: 40, phaseLabel: "正在获取长文内容" },
   { phase: "DownloadingImages", current: 3, total: 6, message: "图片处理中", progress: 50, phaseLabel: "正在下载图片" },
   { phase: "Exporting", current: 1, total: 2, message: "导出中", progress: 50, phaseLabel: "正在导出文件" },
@@ -175,6 +175,41 @@ describe("wizardReducer", () => {
     expect(next.processStatus).toBe("cancelled");
     expect(next.phase).toBe("已取消");
     expect(next.logs).toEqual(["已取消下载"]);
+    expect(next.resumeHint).toBeNull();
+  });
+
+  it("keeps the backend's resume hint when a stopped download had saved posts", () => {
+    const next = reduce(
+      { type: "UPDATE_PROGRESS", phase: "Cancelled", current: 6, total: 0, message: "进度已保存（已获取 6 条微博）" },
+      { ...INITIAL_STATE, logs: [] },
+    );
+
+    expect(next.processStatus).toBe("cancelled");
+    expect(next.resumeHint).toBe("进度已保存（已获取 6 条微博）");
+  });
+
+  it("stores the download outcome so the result screen can report it", () => {
+    const outcome = { saved: 8, longTextFailed: 1, imageFailed: 0, resumedFromPage: null, stoppedEarly: null };
+    const next = reduce(
+      { type: "DOWNLOAD_COMPLETE", outcome },
+      { ...INITIAL_STATE, processStatus: "downloading" },
+    );
+
+    expect(next.processStatus).toBe("downloaded");
+    expect(next.outcome).toBe(outcome);
+  });
+
+  it("forgets the previous outcome and resume hint when the dialog closes or a new download starts", () => {
+    const stale = {
+      ...INITIAL_STATE,
+      outcome: { saved: 3, longTextFailed: 0, imageFailed: 0, resumedFromPage: null, stoppedEarly: null },
+      resumeHint: "进度已保存",
+    };
+
+    for (const action of [{ type: "START_PROCESSING" }, { type: "CLOSE_PROCESSING" }] as WizardAction[]) {
+      expect(reduce(action, stale).outcome).toBeNull();
+      expect(reduce(action, stale).resumeHint).toBeNull();
+    }
   });
 
   it("handles EXPORT_START", () => {

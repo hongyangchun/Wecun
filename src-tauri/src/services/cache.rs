@@ -191,6 +191,10 @@ mod tests {
                 filter: None,
                 start_timestamp: None,
                 end_timestamp: None,
+                schema: 0,
+                min_text_length: 0,
+                ignore_deleted: false,
+                long_text_failed: 0,
             },
             &ExportContext {
                 date_range_label: "2024-01-01至2024-01-31".to_string(),

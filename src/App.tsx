@@ -299,8 +299,13 @@ function AppShell() {
 
   const canStartDownload = validationError === null && !isProcessing;
 
-  const handleStartDownload = useCallback(async () => {
-    if (!canStartDownload) return;
+  const startInFlightRef = useRef(false);
+
+  // Runs a download with the current form. "开始下载" and "继续下载" share it; the ref keeps a double
+  // click or a repeated shortcut from starting two downloads before React has re-rendered.
+  const runDownload = useCallback(async () => {
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
     dispatch({ type: "START_PROCESSING" });
 
     try {
@@ -318,7 +323,7 @@ function AppShell() {
         recordRecentTarget(uid, displayName);
       }
 
-      const result = await startDownload(buildDownloadRequest({
+      const outcome = await startDownload(buildDownloadRequest({
         uid,
         cookie: state.cookie,
         filter: state.postFilter,
@@ -333,8 +338,9 @@ function AppShell() {
         sourceType: state.sourceType,
       }));
 
-      dispatch({ type: "ADD_LOG", message: result });
-      dispatch({ type: "DOWNLOAD_COMPLETE" });
+      // The backend's completion event already logged the outcome summary; the result screen needs
+      // the outcome itself to say what could not be fetched.
+      dispatch({ type: "DOWNLOAD_COMPLETE", outcome });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("已取消")) {
@@ -342,8 +348,15 @@ function AppShell() {
       } else {
         dispatch({ type: "PROCESS_ERROR", message: msg });
       }
+    } finally {
+      startInFlightRef.current = false;
     }
-  }, [canStartDownload, state, dispatch, resolvedAuthor, recentTargets, recordRecentTarget]);
+  }, [state, dispatch, resolvedAuthor, recentTargets, recordRecentTarget]);
+
+  const handleStartDownload = useCallback(async () => {
+    if (!canStartDownload) return;
+    await runDownload();
+  }, [canStartDownload, runDownload]);
 
   const handleExport = useCallback(async (format: ExportFormat) => {
     dispatch({ type: "EXPORT_START" });
@@ -375,6 +388,12 @@ function AppShell() {
   const handleCloseProcessing = useCallback(() => {
     dispatch({ type: "CLOSE_PROCESSING" });
   }, [dispatch]);
+
+  // A stopped download left a checkpoint behind; starting again with the same form continues from it.
+  const handleResume = useCallback(async () => {
+    handleCloseProcessing();
+    await runDownload();
+  }, [handleCloseProcessing, runDownload]);
 
   const handleGoToLogin = useCallback(() => {
     dispatch({ type: "LOGOUT" });
@@ -780,6 +799,9 @@ function AppShell() {
             onOpenOutputDir={handleOpenOutputDir}
             onAnalyze={handleAnalyze}
             sourceType={state.sourceType}
+            outcome={state.outcome ?? null}
+            resumeHint={state.resumeHint ?? null}
+            onResume={handleResume}
           />
         )}
 

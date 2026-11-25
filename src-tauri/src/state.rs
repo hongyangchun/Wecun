@@ -13,6 +13,8 @@ pub struct AppState {
     pub posts_fetched: AtomicUsize,
     pub total_posts: AtomicUsize,
     pub posts_exported: AtomicUsize,
+    /// Set while a download owns the cancel flag, the counters and the checkpoint file.
+    running: AtomicBool,
     cancel_notify: Notify,
     http_client: Mutex<reqwest::Client>,
     cookie: Mutex<String>,
@@ -28,6 +30,7 @@ impl Default for AppState {
             posts_fetched: AtomicUsize::new(0),
             total_posts: AtomicUsize::new(0),
             posts_exported: AtomicUsize::new(0),
+            running: AtomicBool::new(false),
             cancel_notify: Notify::new(),
             http_client: Mutex::new(Self::create_client()),
             cookie: Mutex::new(String::new()),
@@ -81,6 +84,15 @@ impl AppState {
         }
     }
 
+    /// Claims the single download slot. `None` means another download is already running.
+    pub fn try_begin_run(&self) -> Option<RunGuard<'_>> {
+        if self.running.swap(true, Ordering::SeqCst) {
+            None
+        } else {
+            Some(RunGuard(self))
+        }
+    }
+
     pub fn set_cookie(&self, cookie: String) {
         let changed = {
             let mut guard = self.cookie.lock().unwrap_or_else(|e| e.into_inner());
@@ -120,5 +132,36 @@ impl AppState {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+}
+
+/// Releases the download slot when the command that claimed it finishes, however it finishes.
+pub struct RunGuard<'a>(&'a AppState);
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.0.running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppState;
+
+    #[test]
+    fn only_one_download_can_run_at_a_time() {
+        let state = AppState::default();
+
+        let first = state.try_begin_run();
+        assert!(
+            state.try_begin_run().is_none(),
+            "a second download must be refused while the first one runs"
+        );
+
+        drop(first);
+        assert!(
+            state.try_begin_run().is_some(),
+            "the slot is free again once the first download is gone"
+        );
     }
 }
