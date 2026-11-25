@@ -84,4 +84,12 @@ describe("StepProcessing result screen", () => {
     fireEvent.click(screen.getByText("继续下载"));
     expect(onResume).toHaveBeenCalledTimes(1);
   });
+
+  it("offers to open the log folder on the error screen", () => {
+    const onOpenLogDir = vi.fn();
+    renderProcessing({ processStatus: "error", errorMessage: "下载失败: 网络错误", onOpenLogDir });
+
+    fireEvent.click(screen.getByText("打开日志文件夹"));
+    expect(onOpenLogDir).toHaveBeenCalledTimes(1);
+  });
 });

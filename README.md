@@ -66,6 +66,13 @@ npm run tauri build
 | Markdown（每条微博一个文件） | 每条微博一个 `.md` 文件，存放在 `posts/` 子目录中 |
 | HTML（单文件） | 所有微博合并在一个 `.html` 文件中，可直接在浏览器中查看 |
 
+## 发布流程
+
+- 推送到 `main` 会自动构建三端并发布 Release，版本号取自 `package.json`。
+- 每次发布前先升版本号：`package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 四处必须一致，`npm run check:versions` 可以检查，CI 也会检查。
+- 版本号对应的 Release 已存在时，CI 直接失败，不会覆盖已发布的文件。
+- 建议先提 Pull Request：CI 会在 PR 上完整演练一次发布（`Assemble release (rehearsal)`），缺文件或文件重名都会失败。
+
 ## 测试与冒烟检查
 
 ### Rust 测试

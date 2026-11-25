@@ -20,12 +20,11 @@ interface ReleaseStats {
   platformUrls: Partial<Record<'macOS' | 'Windows' | 'Linux', string>>;
 }
 
-const FALLBACK_VERSION = 'v1.0.5';
 
 function useReleaseStats(): ReleaseStats {
   const [stats, setStats] = useState<ReleaseStats>({
     totalDownloads: null,
-    latestVersion: FALLBACK_VERSION,
+    latestVersion: '',
     platformUrls: {},
   });
 
@@ -35,8 +34,11 @@ function useReleaseStats(): ReleaseStats {
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to fetch releases'))))
       .then((releases: GitHubRelease[]) => {
         if (cancelled || !Array.isArray(releases)) return;
+        // Installers only: update packages, signatures and the manifest are not what a visitor means by a download.
+        const isInstaller = (name: string) => /\.(dmg|exe|deb|AppImage)$/.test(name);
         const totalDownloads = releases.reduce(
-          (sum, release) => sum + (release.assets ?? []).reduce((s, a) => s + a.download_count, 0),
+          (sum, release) =>
+            sum + (release.assets ?? []).filter((a) => isInstaller(a.name)).reduce((s, a) => s + a.download_count, 0),
           0,
         );
         const latest = releases.find((r) => !r.draft && !r.prerelease) ?? releases[0];
@@ -51,7 +53,7 @@ function useReleaseStats(): ReleaseStats {
         }
         setStats({
           totalDownloads,
-          latestVersion: latest?.tag_name || FALLBACK_VERSION,
+          latestVersion: latest?.tag_name ?? '',
           platformUrls,
         });
       })
@@ -79,27 +81,29 @@ function DownloadCount({ count, className = '' }: { count: number | null; classN
   );
 }
 
+// Every release also carries version-less copies of the installers (scripts/release.mjs), so these
+// links keep working when the GitHub API cannot be reached and the version cannot be looked up.
 const PLATFORMS = [
   {
     icon: Monitor,
     name: 'macOS' as const,
     desc: 'Apple Silicon & Intel',
     format: '.dmg',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.5_universal.dmg',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun-universal.dmg',
   },
   {
     icon: Monitor,
     name: 'Windows' as const,
     desc: 'x64',
     format: '.exe',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.5_x64-setup.exe',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun-x64-setup.exe',
   },
   {
     icon: Globe,
     name: 'Linux' as const,
     desc: 'Ubuntu / Debian',
     format: '.AppImage / .deb',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.5_amd64.AppImage',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun-latest.AppImage',
   },
 ];
 
@@ -214,7 +218,7 @@ export default function App() {
             <div className="flex flex-wrap items-center gap-3 mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-text-muted)]">
                 <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] pulse-dot"></span>
-                <span className="mono text-xs">{latestVersion} 现已可用</span>
+                {latestVersion && <span className="mono text-xs">{latestVersion} 现已可用</span>}
               </div>
               <DownloadCount count={totalDownloads} className="text-sm text-[var(--color-text-muted)]" />
             </div>

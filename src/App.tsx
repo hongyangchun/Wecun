@@ -9,6 +9,7 @@ import {
   startDownload,
   cancelDownload,
   exportPosts,
+  getLogDir,
   openOutputDir,
   clearSavedCookie,
   checkForAppUpdate,
@@ -405,6 +406,15 @@ function AppShell() {
   const handleOpenOutputDir = useCallback(async () => {
     if (state.outputDir) await openOutputDir(state.outputDir);
   }, [state.outputDir]);
+
+  // The log file is what makes a "下载失败" report actionable.
+  const handleOpenLogDir = useCallback(async () => {
+    try {
+      await openOutputDir(await getLogDir());
+    } catch (err: unknown) {
+      dispatch({ type: "ADD_LOG", message: `无法打开日志文件夹：${err instanceof Error ? err.message : String(err)}` });
+    }
+  }, [dispatch]);
 
   const handleAnalyze = useCallback(async () => {
     setIsAnalyzing(true);
@@ -804,6 +814,7 @@ function AppShell() {
             outcome={state.outcome ?? null}
             resumeHint={state.resumeHint ?? null}
             onResume={handleResume}
+            onOpenLogDir={handleOpenLogDir}
           />
         )}
 

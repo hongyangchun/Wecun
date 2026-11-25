@@ -28,7 +28,14 @@ impl ProfileService {
         let local_stats = local_analyzer::LocalAnalyzer::analyze(posts);
         let glm_client = GlmClient::new();
         let deep_profile = if glm_client.is_configured() {
-            glm_client.analyze(posts).await.ok()
+            match glm_client.analyze(posts).await {
+                Ok(profile) => Some(profile),
+                // The report still shows the local statistics; the log says why the AI part is missing.
+                Err(error) => {
+                    log::warn!("AI profile analysis failed: {error}");
+                    None
+                }
+            }
         } else {
             None
         };

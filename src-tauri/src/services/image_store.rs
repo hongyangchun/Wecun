@@ -122,8 +122,7 @@ impl ImageStoreService {
                 match svc.download_image(&client, &url, &dir, &filename).await {
                     Ok(local) => (url, Some(local)),
                     Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("Failed to download {}: {}", url, _e);
+                                                log::warn!("image download failed {url}: {_e}");
                         (url, None)
                     }
                 }
@@ -176,8 +175,7 @@ impl ImageStoreService {
             match self.download_image(client, url, target_dir, filename).await {
                 Ok(local) => results.push((url.clone(), local)),
                 Err(_e) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("Failed to download {}: {}", url, _e);
+                                        log::warn!("image download failed {url}: {_e}");
                 }
             }
         }
