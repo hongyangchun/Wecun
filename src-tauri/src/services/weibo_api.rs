@@ -190,13 +190,13 @@ impl<R: Runtime> WeiboApiClient<R> {
         let mut attempt = 0;
 
         loop {
-            if state.is_cancelled() {
+            if state.download_was_stopped() {
                 return Err(AppError::Cancelled);
             }
 
             match request_fn().await {
                 Ok((status, text)) => {
-                    if is_auth_invalid_response(status, &text) || !is_retryable_status(status) {
+                    if !should_retry(status, &text) {
                         return Ok((status, text));
                     }
 
@@ -729,9 +729,16 @@ fn is_retryable_status(status: StatusCode) -> bool {
     status == StatusCode::TOO_MANY_REQUESTS || is_blocked_status(status) || status.is_server_error()
 }
 
+/// Whether a failed request is worth another try. A lost login is not: retrying it cannot help, and
+/// the caller has to log the user out.
+fn should_retry(status: StatusCode, body: &str) -> bool {
+    !is_auth_invalid_response(status, body) && is_retryable_status(status)
+}
+
 /// HTTP statuses Weibo uses to refuse a request without saying anything about the login.
 fn is_blocked_status(status: StatusCode) -> bool {
-    status == StatusCode::FORBIDDEN || status.as_u16() == 418
+    // 429 belongs here too: once the retries are through, it is still throttling.
+    status == StatusCode::FORBIDDEN || status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 418
 }
 
 pub fn blocked_message(status: StatusCode, path: &str) -> String {
@@ -998,6 +1005,21 @@ mod tests {
         assert!(super::is_blocked_status(StatusCode::from_u16(418).unwrap()));
         assert!(!super::is_blocked_status(StatusCode::UNAUTHORIZED));
         assert!(!super::is_blocked_status(StatusCode::OK));
+        assert!(super::is_blocked_status(StatusCode::TOO_MANY_REQUESTS), "still throttled after the retries");
+    }
+
+    #[test]
+    fn a_refusal_is_retried_but_a_lost_login_is_not() {
+        let forbidden = StatusCode::from_u16(403).unwrap();
+        let sign_in_page = r#"<html><head><meta http-equiv=\"refresh\" content=\"0; url='https://passport.weibo.com/sso/signin?retcode=6102'\"/></head></html>"#;
+
+        assert!(super::should_retry(forbidden, r#"{"code":10000,"message":"访问过于频繁"}"#));
+        assert!(super::should_retry(StatusCode::from_u16(418).unwrap(), "<html>访问过于频繁</html>"));
+        assert!(super::should_retry(StatusCode::TOO_MANY_REQUESTS, ""));
+        assert!(!super::should_retry(forbidden, sign_in_page), "a 403 that carries the sign-in redirect");
+        assert!(!super::should_retry(StatusCode::UNAUTHORIZED, ""));
+        assert!(!super::should_retry(StatusCode::BAD_REQUEST, ""));
+        assert!(!super::should_retry(StatusCode::OK, ""));
     }
 
     #[test]

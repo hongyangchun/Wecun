@@ -416,13 +416,12 @@ export default function ProfilePanel({
         </div>
       )}
 
-      {!deepProfile && (
-        <AiKeySetup
-          configured={Boolean(profile.aiConfigured)}
-          error={profile.aiError}
-          onSaved={onAnalyze}
-        />
-      )}
+      {/* Also once the AI part is there: the key must stay replaceable and removable. */}
+      <AiKeySetup
+        configured={Boolean(profile.aiConfigured)}
+        error={profile.aiError}
+        onSaved={onAnalyze}
+      />
 
       <div style={{
         display: "flex",

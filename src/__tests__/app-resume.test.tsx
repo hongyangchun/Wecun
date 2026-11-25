@@ -111,4 +111,17 @@ describe("continuing a stopped download", () => {
     expect(await screen.findByRole("heading", { name: "已取消" })).toBeTruthy();
     expect(screen.queryByText("继续下载")).toBeNull();
   });
+
+  it("names the signed-in account when backing up favourites, so that another account's backup is never continued", async () => {
+    localStorage.setItem("weibo-dl-settings", JSON.stringify({ outputDir: "/tmp/weibo" }));
+    await renderSignedIn();
+
+    fireEvent.click(screen.getByRole("radio", { name: "我的收藏" }));
+    fireEvent.click(screen.getByRole("button", { name: /开始下载/ }));
+
+    await waitFor(() => expect(startDownloadMock).toHaveBeenCalledTimes(1));
+    const request = startDownloadMock.mock.calls[0][0];
+    expect(request.source_type).toBe("favorites");
+    expect(request.uid, "the account whose favourites these are").toBe("1");
+  });
 });

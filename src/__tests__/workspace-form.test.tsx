@@ -83,4 +83,18 @@ describe("WorkspaceForm with a backup already in the directory", () => {
     expect(screen.queryByText("导出已有备份")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /重新完整下载/ })).toBeNull();
   });
+
+  it("warns that the backup will be replaced when the rules differ from the backup's", () => {
+    renderForm({ existingBackup: { ...backup, filter: "original" } });
+
+    expect(screen.getByText(/会重新完整下载并替换它/)).toBeTruthy();
+    expect(screen.queryByText(/只会补上新微博/)).toBeNull();
+  });
+
+  it("says a full download was asked for, instead of promising an update", () => {
+    renderForm({ existingBackup: backup, freshDownload: true });
+
+    expect(screen.getByText(/已勾选「重新完整下载」/)).toBeTruthy();
+    expect(screen.queryByText(/只会补上新微博/)).toBeNull();
+  });
 });

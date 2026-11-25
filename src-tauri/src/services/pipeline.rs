@@ -258,7 +258,8 @@ impl DownloadService {
             end_timestamp: request.date_range.end_timestamp,
         };
         if let Err(error) =
-            cache::save_finished_backup(&walk.posts, &request.output_dir, export_context, &backup).await
+            cache::save_finished_backup(&walk.posts, &request.output_dir, export_context, &backup, walk.sorted_skipped())
+                .await
         {
             report_progress_saved(sink, &walk);
             return Err(error);
@@ -302,6 +303,7 @@ impl DownloadService {
         if walk.api_total <= 0 && api_total > 0 {
             walk.api_total = api_total;
         }
+        let overlap_left = std::mem::take(&mut walk.overlap_left);
 
         if raw_posts.is_empty() {
             walk.empty_pages += 1;
@@ -338,15 +340,15 @@ impl DownloadService {
         let in_range_count = in_range.len();
         let first_time: Vec<RawPost> = in_range
             .into_iter()
-            .filter(|post| !walk.existing_ids.contains(&post.mblogid))
+            .filter(|post| !walk.existing_ids.contains(&post.mblogid) && !walk.skipped_ids.contains(&post.mblogid))
             .collect();
 
-        // Pages that are entirely out of range are not a sign of trouble; pages that only repeat
-        // what is already saved are.
+        // Pages that are entirely out of range are not a sign of trouble; pages that hold nothing
+        // the walk has not been through before are.
         if in_range_count > 0 && first_time.is_empty() {
-            if walk.updating {
-                // Everything on this page was saved before, and pages only get older from here, so
-                // the update has reached the posts it already has.
+            if walk.updating && !overlap_left {
+                // Everything on this page was handled before (saved, or left out on purpose), and
+                // pages only get older from here: the update has reached what it already went through.
                 return Ok(PageStep::Finished(None));
             }
             walk.repeated_pages += 1;
@@ -361,10 +363,15 @@ impl DownloadService {
 
         let new_posts = first_time.len();
         walk.total_fetched += new_posts;
-        let fresh: Vec<RawPost> = first_time
-            .into_iter()
-            .filter(|post| !(request.ignore_deleted && post.user.is_none()))
-            .collect();
+        let mut fresh = Vec::with_capacity(first_time.len());
+        for post in first_time {
+            if request.ignore_deleted && post.user.is_none() {
+                // Left out on purpose. Remember it, or every update comes back to it.
+                walk.skipped_ids.insert(post.mblogid);
+                continue;
+            }
+            fresh.push(post);
+        }
         self.process_posts(context, walk, fresh, page).await?;
 
         // The page is fully handled, so a checkpoint may resume after it.
@@ -404,9 +411,18 @@ impl DownloadService {
         let request = context.request;
 
         // Reposts are dropped by the "original only" filter before any request is made for them.
+        let original_only = matches!(request.filter, PostFilter::Original);
         let candidates: Vec<RawPost> = raw_posts
             .into_iter()
-            .filter(|raw| !(matches!(request.filter, PostFilter::Original) && raw.retweeted_status.is_some()))
+            .filter(|raw| {
+                let left_out = original_only && raw.retweeted_status.is_some();
+                if left_out {
+                    // Reposts are dropped before any request is made for them, and an update must not
+                    // take them for something new.
+                    walk.skipped_ids.insert(raw.mblogid.clone());
+                }
+                !left_out
+            })
             .collect();
         let mut long_texts_total = 0;
         for raw in &candidates {
@@ -462,8 +478,10 @@ impl DownloadService {
                 && request.min_text_length > 0
                 && count_visible_chars(&post.text) < request.min_text_length
             {
-                // Nothing of this post is kept, so nothing of it was kept truncated.
+                // Nothing of this post is kept, so nothing of it was kept truncated. An update must
+                // not take it for something new either.
                 walk.long_text_failed = failures_before;
+                walk.skipped_ids.insert(post.mblogid);
                 continue;
             }
             if !walk.existing_ids.insert(post.mblogid.clone()) {
@@ -630,6 +648,11 @@ struct WalkState {
     base_len: usize,
     /// This run adds to a finished backup instead of downloading from scratch.
     updating: bool,
+    /// Posts the rules left out. An update treats them like saved posts: it has been through them.
+    skipped_ids: HashSet<String>,
+    /// A resumed walk reads the page it stopped on again. The update's stop rule must wait until
+    /// after that page: it was handled moments ago, while the pages after it were never read.
+    overlap_left: bool,
     empty_pages: usize,
     repeated_pages: usize,
     /// Something changed since the last checkpoint was written.
@@ -652,6 +675,8 @@ impl WalkState {
             resumed_from_page: None,
             base_len: 0,
             updating: false,
+            skipped_ids: HashSet::new(),
+            overlap_left: false,
             empty_pages: 0,
             repeated_pages: 0,
             dirty: false,
@@ -699,6 +724,8 @@ impl WalkState {
                     resumed_from_page: Some(last_page + 1),
                     base_len,
                     updating: base_len > 0,
+                    skipped_ids: bundle.skipped_ids.iter().cloned().collect(),
+                    overlap_left: base_len > 0,
                     checkpoint_on_disk: Some((last_page, bundle.posts.len())),
                     posts: bundle.posts,
                     ..Self::new()
@@ -743,10 +770,18 @@ impl WalkState {
             existing_ids: bundle.posts.iter().map(|post| post.mblogid.clone()).collect(),
             base_len,
             updating: true,
+            skipped_ids: bundle.skipped_ids.iter().cloned().collect(),
             posts: bundle.posts,
             ..Self::new()
         };
         (walk, 1, None)
+    }
+
+    /// The posts left out so far, in a fixed order so that files do not change for no reason.
+    fn sorted_skipped(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.skipped_ids.iter().cloned().collect();
+        ids.sort();
+        ids
     }
 
     async fn save_checkpoint<S: WeiboSource>(&self, context: &RunContext<'_, S>) -> Result<(), AppError> {
@@ -768,6 +803,7 @@ impl WalkState {
                 ignore_deleted: request.ignore_deleted,
                 long_text_failed: self.long_text_failed,
                 base_posts: self.base_len,
+                skipped_ids: self.sorted_skipped(),
             },
             context.export_context,
         )
@@ -1432,6 +1468,7 @@ mod tests {
             ignore_deleted: false,
             long_text_failed: 0,
             base_posts: 0,
+            skipped_ids: Vec::new(),
         };
         let earlier: Vec<WeiboPost> = timeline(2, 3)
             .into_iter()
@@ -1920,6 +1957,95 @@ mod tests {
         assert_eq!((outcome.added, outcome.started_over.as_deref()), (None, None));
         assert_eq!(outcome.saved, 6);
         assert_eq!(finished_backup(&dir).uid, "9999999999");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn repost(id: &str, index: usize) -> RawPost {
+        RawPost {
+            retweeted_status: Some(Box::new(post_dated(id, index as i64 + 100))),
+            ..post(index)
+        }
+    }
+
+    #[tokio::test]
+    async fn resuming_an_interrupted_update_still_reads_the_pages_it_never_got_to() {
+        // Six new posts sit on three pages in front of the six that are already saved.
+        let mut later: Vec<RawPost> = (0..6).map(|i| newer(i, 6)).collect();
+        later.extend(timeline(3, 2).into_iter().flatten());
+        let pages = pages_of(later, 2);
+        let everyone = ["n0", "n1", "n2", "n3", "n4", "n5", "p0", "p1", "p2", "p3", "p4", "p5"];
+
+        // Refused while fetching page 2, 3 or 4: the walk had got through 1, 2 or 3 pages of new posts.
+        for (refused_at, expected_pages) in [(2, vec![1, 2, 3, 4]), (3, vec![2, 3, 4]), (4, vec![3, 4])] {
+            let dir = temp_output_dir(&format!("update-resume-{refused_at}"));
+            run(&request(&dir), &FakeSource::new(timeline(3, 2))).await.0.unwrap();
+
+            let stopping = FakeSource {
+                fail_page_with: Some((refused_at, Failure::Blocked)),
+                ..FakeSource::new(pages.clone())
+            };
+            assert!(run(&request(&dir), &stopping).await.0.is_err(), "refused on page {refused_at}");
+
+            let source = FakeSource::new(pages.clone());
+            let (result, _, _) = run(&request(&dir), &source).await;
+            let outcome = result.unwrap();
+
+            assert_eq!(outcome.added, Some(6), "refused on page {refused_at}: no new post may be left unread");
+            assert_eq!(outcome.saved, 12, "refused on page {refused_at}");
+            assert_eq!(source.requested_pages(), expected_pages, "refused on page {refused_at}");
+            assert_eq!(saved_ids(&dir), everyone, "refused on page {refused_at}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_update_of_a_backup_made_with_a_filter_stops_at_posts_it_has_already_judged() {
+        let dir = temp_output_dir("update-filtered");
+        let original_only = DownloadRequest {
+            filter: PostFilter::Original,
+            ..request(&dir)
+        };
+
+        // Every other post is a repost, which the "original only" rule leaves out.
+        let mut pages = timeline(3, 2);
+        pages[0][1] = repost("r1", 1);
+        pages[1][1] = repost("r3", 3);
+        pages[2][1] = repost("r5", 5);
+        let (result, _, _) = run(&original_only, &FakeSource::new(pages.clone())).await;
+        assert_eq!(result.unwrap().saved, 3);
+
+        // One new original post, in front of a repost that was skipped the first time.
+        let mut later = vec![newer(0, 1)];
+        later.extend(pages.into_iter().flatten());
+        let source = FakeSource::new(pages_of(later, 2));
+        let (result, _, _) = run(&original_only, &source).await;
+        let outcome = result.unwrap();
+
+        assert_eq!((outcome.added, outcome.saved), (Some(1), 4));
+        assert_eq!(
+            source.requested_pages(),
+            [1, 2],
+            "a repost the rule skipped last time is nothing new: the whole timeline need not be walked"
+        );
+        assert_eq!(saved_ids(&dir), ["n0", "p0", "p2", "p4"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_update_of_a_backup_that_was_allowed_to_keep_nothing_reads_one_page() {
+        let dir = temp_output_dir("update-empty-rules");
+        let strict = DownloadRequest {
+            min_text_length: 50,
+            ..request(&dir)
+        };
+        let pages = timeline(3, 2);
+        assert_eq!(run(&strict, &FakeSource::new(pages.clone())).await.0.unwrap().saved, 0);
+
+        let source = FakeSource::new(pages);
+        let (result, _, _) = run(&strict, &source).await;
+
+        assert_eq!(result.unwrap().added, Some(0));
+        assert_eq!(source.requested_pages(), [1], "every post was judged too short the first time");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

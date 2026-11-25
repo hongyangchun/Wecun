@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SegmentedControl } from "./ui";
 import { pickDirectory } from "../lib/dialog";
 import { lookupUserInfo } from "../lib/tauri-bridge";
-import { extractUidFromUrl, isValidProfileUrl } from "../lib/validation";
+import { canUpdateBackup, extractUidFromUrl, isValidProfileUrl } from "../lib/validation";
 import type { BackupMeta, DownloadRange, PostFilter, RecentTarget } from "../types/contracts";
 
 interface WorkspaceFormProps {
@@ -209,6 +209,24 @@ export default function WorkspaceForm({
     sourceType === "profile" &&
     downloadRange === "range" &&
     Boolean(dateStart && dateEnd && dateStart > dateEnd);
+
+  // Only promise an update when the download will really be one. The backend decides by the same
+  // rules, and a run that starts over replaces the backup that is in the directory.
+  const whatStartWillDo = !existingBackup
+    ? ""
+    : freshDownload
+      ? "已勾选「重新完整下载」：会从第一页重新抓取，并替换这份备份。"
+      : canUpdateBackup(existingBackup, {
+            sourceType,
+            filter: postFilter,
+            minTextLength,
+            ignoreDeleted,
+            downloadRange,
+            dateStart,
+            dateEnd,
+          })
+        ? "点「开始下载」只会补上新微博。"
+        : "当前的筛选条件或时间范围和这份备份不同，点「开始下载」会重新完整下载并替换它。";
 
   return (
     <div className="step-enter workspace-sections">
@@ -532,7 +550,7 @@ export default function WorkspaceForm({
 
           <p className="form-hint" style={{ margin: 0 }}>
             此目录已有 {existingBackup.source_type === "favorites" ? "当前账号的收藏" : `@${existingBackup.author}`} 的备份，共{" "}
-            {existingBackup.post_count} 条。{!freshDownload && "点「开始下载」只会补上新微博。"}
+            {existingBackup.post_count} 条。{whatStartWillDo}
           </p>
         </section>
       )}
