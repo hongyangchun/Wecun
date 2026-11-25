@@ -217,7 +217,10 @@ impl DownloadService {
         // ones. They belong in front of the old ones; a profile timeline is then put back in
         // post-time order on top of that.
         if walk.base_len > 0 {
-            let new_posts = walk.posts.split_off(walk.base_len);
+            let mut new_posts = walk.posts.split_off(walk.base_len);
+            // In the order the walk first saw them: a resumed update finds posts above the ones an
+            // earlier attempt saved, and those are newer.
+            new_posts.sort_by_key(|post| walk.sighting_index.get(&post.mblogid).copied().unwrap_or(usize::MAX));
             walk.posts.splice(0..0, new_posts);
         }
         if matches!(request.source_type, SourceType::Profile) {
@@ -344,7 +347,15 @@ impl DownloadService {
         // pages only get older from here, and that backup went through all of them. What this run
         // itself went through (pages it read before an interruption, new posts it left out) does
         // not: there may be more below.
-        let all_base_handled = in_range.iter().all(base_handled);
+        let all_base_handled = in_range.iter().all(&base_handled);
+        if walk.updating {
+            for post in &in_range {
+                if !base_handled(post) {
+                    let next = walk.sighting_index.len();
+                    walk.sighting_index.entry(post.mblogid.clone()).or_insert(next);
+                }
+            }
+        }
         let first_time: Vec<RawPost> = in_range
             .into_iter()
             .filter(|post| {
@@ -669,6 +680,9 @@ struct WalkState {
     base_skipped: HashSet<String>,
     /// Posts this run left out because of the rules, on evidence that is complete.
     run_skipped: HashSet<String>,
+    /// Where in the walk each new post was first seen, for an update. A resumed update reads pages
+    /// an earlier attempt already saved from, and what it finds above them is newer than they are.
+    sighting_index: HashMap<String, usize>,
     empty_pages: usize,
     repeated_pages: usize,
     /// Something changed since the last checkpoint was written.
@@ -694,6 +708,7 @@ impl WalkState {
             base_ids: HashSet::new(),
             base_skipped: HashSet::new(),
             run_skipped: HashSet::new(),
+            sighting_index: HashMap::new(),
             empty_pages: 0,
             repeated_pages: 0,
             dirty: false,
@@ -933,18 +948,25 @@ fn report_progress_saved(sink: &dyn ProgressSink, walk: &WalkState) {
 
 fn saved_progress_message(walk: &WalkState) -> Option<String> {
     let (last_page, saved) = walk.checkpoint_on_disk?;
+    // An interrupted update starts again from the first page, so a page number would be wrong.
     let how_far = if walk.dirty {
-        format!(
-            "到第 {} 页（已获取 {saved} 条微博，之后处理的几条没能写入磁盘）",
-            last_page + 1
-        )
+        if walk.updating {
+            format!("（已获取 {saved} 条微博，之后处理的几条没能写入磁盘）")
+        } else {
+            format!(
+                "到第 {} 页（已获取 {saved} 条微博，之后处理的几条没能写入磁盘）",
+                last_page + 1
+            )
+        }
     } else {
         format!("（已获取 {saved} 条微博）")
     };
-    Some(format!(
-        "进度已保存{how_far}，再次点击「开始下载」会从第 {} 页接着下载",
-        last_page + 1
-    ))
+    let how = if walk.updating {
+        "会接着检查新微博".to_string()
+    } else {
+        format!("会从第 {} 页接着下载", last_page + 1)
+    };
+    Some(format!("进度已保存{how_far}，再次点击「开始下载」{how}"))
 }
 
 fn report_cancelled(sink: &dyn ProgressSink, walk: &WalkState) {
@@ -2172,6 +2194,56 @@ mod tests {
         let (result, _, _) = run(&strict, &second_try).await;
 
         assert_eq!(result.unwrap().added, Some(1), "nothing is final while the evidence was incomplete");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_stopped_update_does_not_promise_a_page_number_it_will_not_start_from() {
+        let dir = temp_output_dir("update-stop-wording");
+        run(&request(&dir), &FakeSource::new(timeline(3, 2))).await.0.unwrap();
+
+        let mut later: Vec<RawPost> = (0..4).map(|i| newer(i, 4)).collect();
+        later.extend(timeline(3, 2).into_iter().flatten());
+        let stopping = FakeSource {
+            fail_page_with: Some((2, Failure::Cancelled)),
+            ..FakeSource::new(pages_of(later, 2))
+        };
+
+        let (result, _, events) = run(&request(&dir), &stopping).await;
+
+        assert!(matches!(result, Err(AppError::Cancelled)));
+        let cancelled = event(&events, ProgressPhase::Cancelled).expect("the stop is reported");
+        assert!(cancelled.message.contains("接着检查新微博"), "{}", cancelled.message);
+        assert!(!cancelled.message.contains("从第"), "the next run starts from the first page: {}", cancelled.message);
+    }
+
+    #[tokio::test]
+    async fn a_resumed_update_keeps_the_order_in_which_new_posts_appear() {
+        let dir = temp_output_dir("update-resume-order");
+        let mut favourites = request(&dir);
+        favourites.source_type = SourceType::Favorites;
+        run(&favourites, &FakeSource::new(timeline(3, 2))).await.0.unwrap();
+
+        let mut later: Vec<RawPost> = (0..4).map(|i| newer(i, 4)).collect();
+        later.extend(timeline(3, 2).into_iter().flatten());
+        let stopping = FakeSource {
+            fail_page_with: Some((3, Failure::Blocked)),
+            ..FakeSource::new(pages_of(later.clone(), 2))
+        };
+        assert!(run(&favourites, &stopping).await.0.is_err());
+
+        // Something else is favoured before the user comes back. It is the newest of all, and it
+        // has to end up in front of what the interrupted attempt saved.
+        let mut meanwhile = vec![post_dated("m0", -5)];
+        meanwhile.extend(later);
+        let (result, _, _) = run(&favourites, &FakeSource::new(pages_of(meanwhile, 2))).await;
+
+        assert_eq!(result.unwrap().saved, 11);
+        assert_eq!(
+            saved_ids(&dir),
+            ["m0", "n0", "n1", "n2", "n3", "p0", "p1", "p2", "p3", "p4", "p5"],
+            "new posts stay in the order the walk saw them, newest first"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
