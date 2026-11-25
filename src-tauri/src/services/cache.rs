@@ -40,6 +40,7 @@ pub async fn save_cache_bundle(
         posts: posts.to_vec(),
         checkpoint: None,
         backup: None,
+        skipped_ids: Vec::new(),
     })
     .map_err(|e| AppError::Parse(e.to_string()))?;
     let path = dir.join(CACHE_FILE_NAME);
@@ -59,6 +60,7 @@ pub async fn save_cache_checkpoint(
         posts: posts.to_vec(),
         checkpoint: Some(checkpoint),
         backup: None,
+        skipped_ids: Vec::new(),
     })
     .map_err(|e| AppError::Parse(e.to_string()))?;
     let path = dir.join(CACHE_FILE_NAME);
@@ -75,6 +77,7 @@ pub async fn save_finished_backup(
     output_dir: &str,
     export_context: ExportContext,
     backup: &BackupMeta,
+    skipped_ids: Vec<String>,
 ) -> Result<(), AppError> {
     let mut backup = backup.clone();
     backup.post_count = posts.len();
@@ -86,6 +89,7 @@ pub async fn save_finished_backup(
         posts: posts.to_vec(),
         checkpoint: None,
         backup: Some(backup.clone()),
+        skipped_ids,
     })
     .map_err(|e| AppError::Parse(e.to_string()))?;
     write_atomic(&dir.join(CACHE_FILE_NAME), &json).await?;
@@ -141,6 +145,7 @@ fn parse_cached_posts(content: &str) -> Result<CachedPosts, AppError> {
         posts,
         checkpoint: None,
         backup: None,
+        skipped_ids: Vec::new(),
     })
 }
 
@@ -244,6 +249,7 @@ mod tests {
                 ignore_deleted: false,
                 long_text_failed: 0,
                 base_posts: 0,
+                skipped_ids: Vec::new(),
             },
             &ExportContext {
                 date_range_label: "2024-01-01至2024-01-31".to_string(),
@@ -422,7 +428,7 @@ mod tests {
             start_timestamp: None,
             end_timestamp: None,
         };
-        super::save_finished_backup(&posts, &dir, ExportContext::default(), &described)
+        super::save_finished_backup(&posts, &dir, ExportContext::default(), &described, Vec::new())
             .await
             .expect("a finished backup is saved");
 
@@ -450,6 +456,7 @@ mod tests {
                 ignore_deleted: false,
                 long_text_failed: 0,
                 base_posts: 0,
+                skipped_ids: Vec::new(),
             },
             &ExportContext::default(),
         )
@@ -457,7 +464,7 @@ mod tests {
         .unwrap();
         assert!(super::inspect_backup(&dir).is_none());
 
-        super::save_finished_backup(&posts, &dir, ExportContext::default(), &described)
+        super::save_finished_backup(&posts, &dir, ExportContext::default(), &described, Vec::new())
             .await
             .unwrap();
         super::clear(&dir);

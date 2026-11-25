@@ -393,4 +393,14 @@ describe("wizardReducer", () => {
     expect(reduce({ type: "CLOSE_PROCESSING" }, next).viewingExisting).toBe(false);
     expect(reduce({ type: "START_PROCESSING" }, next).viewingExisting).toBe(false);
   });
+
+  it("drops a request for a full download once that download is over", () => {
+    const asked = reduce({ type: "SET_FRESH_DOWNLOAD", value: true });
+    expect(asked.freshDownload).toBe(true);
+
+    expect(reduce(
+      { type: "DOWNLOAD_COMPLETE", outcome: { saved: 3, longTextFailed: 0, imageFailed: 0, resumedFromPage: null, stoppedEarly: null } },
+      asked,
+    ).freshDownload).toBe(false);
+  });
 });

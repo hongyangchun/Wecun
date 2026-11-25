@@ -253,7 +253,7 @@ const StepProcessingComponent = ({
               {issues.length > 0
                 ? "下载已结束，但有以下内容没能拿全："
                 : viewingExisting
-                  ? "这是此目录里已有的备份。可以直接导出；返回后点「开始下载」只会补上新微博。"
+                  ? "这是此目录里已有的备份。可以直接导出。"
                   : outcome?.added != null
                     ? "只抓取了新微博，原有的保持不变。可选择格式导出"
                     : "微博已下载完成，可选择格式导出"}

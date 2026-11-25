@@ -46,6 +46,9 @@ pub struct CheckpointMeta {
     /// Posts the walk started from, when it is adding to an earlier backup.
     #[serde(default)]
     pub base_posts: usize,
+    /// Posts this run saw and left out because of the rules. An update treats them as handled.
+    #[serde(default)]
+    pub skipped_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +60,10 @@ pub struct CachedPosts {
     /// Set once the download is finished: what the backup holds and the rules it was made with.
     #[serde(default)]
     pub backup: Option<BackupMeta>,
+    /// Posts a finished download saw and left out because of the rules, so that an update knows it
+    /// has been through them. They do not go into `BackupMeta`: that is read while the user types.
+    #[serde(default)]
+    pub skipped_ids: Vec<String>,
 }
 
 /// What a finished backup holds and the rules it was made with. An update may only add to a backup

@@ -79,6 +79,10 @@ impl AppState {
 
     /// Sleep for `duration`, returning `true` early if a cancellation is triggered.
     pub async fn sleep_cancellable(&self, duration: Duration) -> bool {
+        if !self.is_running() {
+            tokio::time::sleep(duration).await;
+            return false;
+        }
         if self.is_cancelled() {
             return true;
         }
@@ -106,23 +110,30 @@ impl AppState {
     }
 
     /// Waits until one request interval has passed since the previous request to Weibo, whichever
-    /// command made it, and reserves the slot so that concurrent callers are spaced out as well.
-    /// Returns `true` when the running download was stopped while waiting.
+    /// command made it, and lines up behind it when another caller is already waiting. Returns
+    /// `true` when the running download was stopped while waiting.
     pub async fn wait_for_request_slot(&self) -> bool {
         let wait = {
             let mut next = self.next_request_at.lock().unwrap_or_else(|e| e.into_inner());
-            let wait = next.and_then(|at| remaining_throttle_delay(at.elapsed(), self.request_interval));
-            *next = Some(Instant::now() + wait.unwrap_or_default());
-            wait
+            // Take the earliest free moment and move the next free one an interval past it, so that
+            // callers who arrive while one is waiting each get their own moment.
+            let now = Instant::now();
+            let at = next.map_or(now, |at| at.max(now));
+            *next = Some(at + self.request_interval);
+            at - now
         };
 
-        match wait {
-            Some(duration) if !duration.is_zero() => {
-                tokio::time::sleep(duration).await;
-                self.is_cancelled() && self.is_running()
-            }
-            _ => false,
+        if wait.is_zero() {
+            return false;
         }
+        tokio::time::sleep(wait).await;
+        self.download_was_stopped()
+    }
+
+    /// The running download was stopped. The stop of an earlier download does not count: requests
+    /// made outside a download, such as looking a blogger up, must keep working afterwards.
+    pub fn download_was_stopped(&self) -> bool {
+        self.is_cancelled() && self.is_running()
     }
 
     /// Claims the single download slot. `None` means another download is already running.
@@ -192,6 +203,7 @@ pub fn remaining_throttle_delay(elapsed: Duration, min_interval: Duration) -> Op
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use super::AppState;
@@ -224,5 +236,30 @@ mod tests {
             state.try_begin_run().is_some(),
             "the slot is free again once the first download is gone"
         );
+    }
+
+    #[tokio::test]
+    async fn callers_that_arrive_while_another_is_waiting_are_spaced_out_too() {
+        let interval = Duration::from_millis(100);
+        let state = Arc::new(AppState::with_request_interval(interval));
+
+        let mut waiting = Vec::new();
+        for _ in 0..4 {
+            let state = Arc::clone(&state);
+            waiting.push(tokio::spawn(async move {
+                state.wait_for_request_slot().await;
+                Instant::now()
+            }));
+        }
+        let mut sent_at = Vec::new();
+        for task in waiting {
+            sent_at.push(task.await.unwrap());
+        }
+        sent_at.sort();
+
+        let gaps: Vec<Duration> = sent_at.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        for gap in gaps {
+            assert!(gap >= interval / 2, "two requests went out only {gap:?} apart");
+        }
     }
 }

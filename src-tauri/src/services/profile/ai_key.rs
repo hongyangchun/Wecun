@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, Runtime};
@@ -22,12 +23,17 @@ pub fn read_from(dir: &Path) -> Option<String> {
 pub fn save_to(dir: &Path, key: &str) -> Result<(), AppError> {
     fs::create_dir_all(dir).map_err(AppError::Io)?;
     let staging = dir.join(format!("{FILE_NAME}.tmp"));
-    fs::write(&staging, key.trim()).map_err(AppError::Io)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&staging, fs::Permissions::from_mode(0o600));
+        use std::os::unix::fs::OpenOptionsExt;
+        // Set before the first byte is written, not afterwards: the key never exists world-readable.
+        options.mode(0o600);
     }
+    let mut file = options.open(&staging).map_err(AppError::Io)?;
+    file.write_all(key.trim().as_bytes()).map_err(AppError::Io)?;
+    drop(file);
     fs::rename(&staging, key_path(dir)).map_err(AppError::Io)
 }
 
@@ -35,8 +41,10 @@ pub fn clear_from(dir: &Path) {
     let _ = fs::remove_file(key_path(dir));
 }
 
-/// The key this run uses: the one the user set in the app, or `DEEPSEEK_API_KEY` while developing.
+/// The key this run uses: the one the user set in the app. `DEEPSEEK_API_KEY` is honoured in debug
+/// builds only. In a release it would override the key the user set, and outlive "清除密钥".
 pub fn read<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    #[cfg(debug_assertions)]
     if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
         let key = key.trim().to_string();
         if !key.is_empty() {

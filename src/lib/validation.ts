@@ -1,4 +1,4 @@
-import type { DownloadRequest } from "../types/contracts";
+import type { BackupMeta, DownloadRequest } from "../types/contracts";
 
 export function extractUidFromUrl(url: string): string | null {
   const trimmed = url.trim();
@@ -56,6 +56,33 @@ export function dateToEndTimestamp(dateStr: string): number {
   if (!dateStr) return 0;
   const d = new Date(dateStr + "T23:59:59+08:00");
   return Math.floor(d.getTime() / 1000);
+}
+
+/** What decides whether a download adds to a backup or has to start over. */
+export type BackupRules = Pick<
+  FormValues,
+  "sourceType" | "filter" | "minTextLength" | "ignoreDeleted" | "downloadRange" | "dateStart" | "dateEnd"
+>;
+
+/**
+ * Whether "开始下载" will add to the backup that is already in the directory. It will not when the
+ * content rules differ (one file would then hold two kinds of backup) or when the date window now
+ * reaches further back than the backup ever did. Mirrors `update_allowed` in the Rust pipeline:
+ * the two must agree, or the UI promises what the download does not do.
+ */
+export function canUpdateBackup(backup: BackupMeta, values: BackupRules): boolean {
+  const sameRules =
+    backup.filter === values.filter &&
+    backup.min_text_length === values.minTextLength &&
+    backup.ignore_deleted === values.ignoreDeleted;
+  if (!sameRules) return false;
+
+  // Only a profile download has a date window. Without one the request reaches back to the first
+  // post, which is further than any windowed backup went.
+  const windowed = values.sourceType === "profile" && values.downloadRange === "range";
+  if (!windowed) return backup.start_timestamp === null;
+  if (!values.dateStart) return false;
+  return dateToStartTimestamp(values.dateStart) >= (backup.start_timestamp ?? Number.NEGATIVE_INFINITY);
 }
 
 export interface FormValues {
