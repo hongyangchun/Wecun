@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::models::{
-    CheckpointMeta, DownloadRequest, ExportContext, PostFilter, ProgressEvent, ProgressPhase, RawPost,
+    BackupMeta, CheckpointMeta, DownloadRequest, ExportContext, PostFilter, ProgressEvent, ProgressPhase, RawPost,
     SourceType, UserProfile, WeiboPost,
 };
 use crate::services::cache;
@@ -41,6 +41,12 @@ pub struct DownloadOutcome {
     pub resumed_from_page: Option<usize>,
     /// Why the run stopped before reaching the end of the timeline, when it did.
     pub stopped_early: Option<String>,
+    /// Posts this run added to an earlier backup, when it was an update. `None` for a full download.
+    pub added: Option<usize>,
+    /// Posts of the earlier backup that an update kept as they were.
+    pub unchanged: usize,
+    /// Set when the directory held a backup that could not be updated, saying why the run started over.
+    pub started_over: Option<String>,
 }
 
 impl DownloadOutcome {
@@ -51,7 +57,10 @@ impl DownloadOutcome {
 
     /// One line for the log and the completion event.
     pub fn summary(&self) -> String {
-        let mut summary = format!("下载完成！共 {} 条微博", self.saved);
+        let mut summary = match self.added {
+            Some(added) => format!("更新完成！新增 {added} 条微博，共 {} 条", self.saved),
+            None => format!("下载完成！共 {} 条微博", self.saved),
+        };
         if self.long_text_failed > 0 {
             summary.push_str(&format!("，其中 {} 条长微博未能获取全文", self.long_text_failed));
         }
@@ -60,6 +69,9 @@ impl DownloadOutcome {
         }
         if let Some(reason) = &self.stopped_early {
             summary.push_str(&format!("；{}", reason));
+        }
+        if let Some(reason) = &self.started_over {
+            summary.push_str(&format!("（{reason}）"));
         }
         summary
     }
@@ -158,11 +170,8 @@ impl DownloadService {
             export_context: &export_context,
         };
 
-        let mut walk = WalkState::resume(&context).await;
-        // Start one page before the first unprocessed one. A post deleted on Weibo during a pause
-        // moves every later post up a slot, so the neighbour of the last saved post may have slipped
-        // onto the page before; reading that page again costs one request and catches it.
-        let mut page = walk.last_page.max(1) as i64;
+        let (mut walk, first_page, started_over) = WalkState::start(&context).await;
+        let mut page = first_page as i64;
 
         // `Ok` means the walk reached the end of the timeline, or as far as it usefully could.
         let walked = loop {
@@ -203,8 +212,14 @@ impl DownloadService {
             }
         };
 
-        // A resumed walk reads one page again and appends what it finds there, so a newer post can
-        // arrive after older ones. A profile timeline is in post-time order: put it back.
+        // An update appends what it finds after the posts it started from, and a resumed walk reads
+        // one page again and appends what it finds there, so newer posts can arrive after older
+        // ones. They belong in front of the old ones; a profile timeline is then put back in
+        // post-time order on top of that.
+        if walk.base_len > 0 {
+            let new_posts = walk.posts.split_off(walk.base_len);
+            walk.posts.splice(0..0, new_posts);
+        }
         if matches!(request.source_type, SourceType::Profile) {
             walk.posts = in_timeline_order(std::mem::take(&mut walk.posts));
         }
@@ -228,7 +243,23 @@ impl DownloadService {
             }
         }
 
-        if let Err(error) = cache::save_cache_bundle(&walk.posts, &request.output_dir, export_context).await {
+        let backup = BackupMeta {
+            uid: request.uid.clone(),
+            source_type: request.source_type.clone(),
+            post_count: walk.posts.len(),
+            author: match request.source_type {
+                SourceType::Profile => user.screen_name.clone(),
+                SourceType::Favorites => "我的收藏".to_string(),
+            },
+            filter: request.filter.clone(),
+            min_text_length: request.min_text_length,
+            ignore_deleted: request.ignore_deleted,
+            start_timestamp: request.date_range.start_timestamp,
+            end_timestamp: request.date_range.end_timestamp,
+        };
+        if let Err(error) =
+            cache::save_finished_backup(&walk.posts, &request.output_dir, export_context, &backup).await
+        {
             report_progress_saved(sink, &walk);
             return Err(error);
         }
@@ -240,6 +271,9 @@ impl DownloadService {
             image_failed,
             resumed_from_page: walk.resumed_from_page,
             stopped_early,
+            added: walk.updating.then(|| walk.posts.len() - walk.base_len),
+            unchanged: if walk.updating { walk.base_len } else { 0 },
+            started_over,
         };
         log::info!("download finished: {}", outcome.summary());
         if let Some(page) = outcome.resumed_from_page {
@@ -310,6 +344,11 @@ impl DownloadService {
         // Pages that are entirely out of range are not a sign of trouble; pages that only repeat
         // what is already saved are.
         if in_range_count > 0 && first_time.is_empty() {
+            if walk.updating {
+                // Everything on this page was saved before, and pages only get older from here, so
+                // the update has reached the posts it already has.
+                return Ok(PageStep::Finished(None));
+            }
             walk.repeated_pages += 1;
             if walk.repeated_pages >= MAX_REPEATED_PAGES {
                 return Ok(PageStep::Finished(Some(format!(
@@ -331,7 +370,12 @@ impl DownloadService {
         // The page is fully handled, so a checkpoint may resume after it.
         walk.last_page = page as usize;
         walk.dirty = true;
-        context.report_page(walk, page, &format!("已获取 {} 条微博", walk.total_fetched));
+        let progress_note = if walk.updating {
+            format!("已发现 {} 条新微博", walk.posts.len() - walk.base_len)
+        } else {
+            format!("已获取 {} 条微博", walk.total_fetched)
+        };
+        context.report_page(walk, page, &progress_note);
         log::debug!("page {page} handled: {new_posts} new posts, {} saved in total", walk.posts.len());
 
         if walk.posts_since_checkpoint >= CHECKPOINT_EVERY_POSTS
@@ -539,6 +583,11 @@ impl<S: WeiboSource> RunContext<'_, S> {
         let ranged = self.request.date_range.start_timestamp.is_some()
             || self.request.date_range.end_timestamp.is_some();
         self.state.posts_exported.store(walk.posts.len(), Ordering::Relaxed);
+        // How far an update has got says nothing about how much is left: it ends at the first page
+        // it already has.
+        if walk.updating {
+            return (walk.posts.len() - walk.base_len, 0);
+        }
         if ranged || walk.api_total <= 0 {
             (walk.total_fetched, 0)
         } else {
@@ -577,6 +626,10 @@ struct WalkState {
     api_total: i64,
     long_text_failed: usize,
     resumed_from_page: Option<usize>,
+    /// Posts the walk started from, when it is adding to an earlier backup.
+    base_len: usize,
+    /// This run adds to a finished backup instead of downloading from scratch.
+    updating: bool,
     empty_pages: usize,
     repeated_pages: usize,
     /// Something changed since the last checkpoint was written.
@@ -597,6 +650,8 @@ impl WalkState {
             api_total: 0,
             long_text_failed: 0,
             resumed_from_page: None,
+            base_len: 0,
+            updating: false,
             empty_pages: 0,
             repeated_pages: 0,
             dirty: false,
@@ -606,41 +661,92 @@ impl WalkState {
         }
     }
 
-    /// Continues an interrupted download when its checkpoint was written for exactly these settings.
-    async fn resume<S: WeiboSource>(context: &RunContext<'_, S>) -> Self {
+    /// Works out how this run relates to what the output directory already holds: a fresh download,
+    /// the continuation of an interrupted one, or an update of a finished backup.
+    ///
+    /// Also returns the first page to fetch and, when a finished backup was there but could not be
+    /// updated, why the run starts over instead.
+    async fn start<S: WeiboSource>(context: &RunContext<'_, S>) -> (Self, usize, Option<String>) {
         let request = context.request;
-        let Ok(bundle) = cache::load_cache_bundle(&request.output_dir).await else {
-            return Self::new();
+        let dir = &request.output_dir;
+        let over = |reason: Option<String>| (Self::new(), 1, reason);
+
+        let Ok(bundle) = cache::load_cache_bundle(dir).await else {
+            return over(None);
         };
-        let Some(checkpoint) = bundle.checkpoint else {
-            return Self::new();
+
+        if let Some(checkpoint) = bundle.checkpoint {
+            if !request.fresh && checkpoint.schema == CHECKPOINT_SCHEMA && checkpoint_matches(&checkpoint, request)
+            {
+                context.sink.emit(
+                    ProgressPhase::Resuming,
+                    0,
+                    checkpoint.total_fetched,
+                    &format!(
+                        "从第 {} 页继续下载（已保存 {} 条）...",
+                        checkpoint.last_page + 1,
+                        bundle.posts.len()
+                    ),
+                );
+                let base_len = checkpoint.base_posts;
+                let last_page = checkpoint.last_page;
+                let walk = Self {
+                    existing_ids: bundle.posts.iter().map(|post| post.mblogid.clone()).collect(),
+                    last_page,
+                    total_fetched: checkpoint.total_fetched,
+                    api_total: checkpoint.total_posts,
+                    long_text_failed: checkpoint.long_text_failed,
+                    resumed_from_page: Some(last_page + 1),
+                    base_len,
+                    updating: base_len > 0,
+                    checkpoint_on_disk: Some((last_page, bundle.posts.len())),
+                    posts: bundle.posts,
+                    ..Self::new()
+                };
+                // Start one page before the first unprocessed one. A post deleted on Weibo during a
+                // pause moves every later post up a slot, so the neighbour of the last saved post
+                // may have slipped onto the page before; reading that page again costs one request
+                // and catches it.
+                return (walk, last_page.max(1), None);
+            }
+
+            // A checkpoint for other settings, or one the user asked to skip, must not be picked up
+            // by a later run either.
+            cache::clear(dir);
+            return over(None);
+        }
+
+        let Some(backup) = bundle
+            .backup
+            .filter(|backup| backup.uid == request.uid && backup.source_type == request.source_type)
+        else {
+            return over(None);
         };
-        if checkpoint.schema != CHECKPOINT_SCHEMA || !checkpoint_matches(&checkpoint, request) {
-            return Self::new();
+
+        if request.fresh {
+            cache::clear(dir);
+            return over(None);
+        }
+        if let Err(reason) = update_allowed(&backup, request) {
+            cache::clear(dir);
+            return over(Some(reason));
         }
 
         context.sink.emit(
-            ProgressPhase::Resuming,
+            ProgressPhase::FetchingPostList,
             0,
-            checkpoint.total_fetched,
-            &format!(
-                "从第 {} 页继续下载（已保存 {} 条）...",
-                checkpoint.last_page + 1,
-                bundle.posts.len()
-            ),
+            0,
+            &format!("已有 {} 条，正在检查新微博...", bundle.posts.len()),
         );
-
-        Self {
+        let base_len = bundle.posts.len();
+        let walk = Self {
             existing_ids: bundle.posts.iter().map(|post| post.mblogid.clone()).collect(),
-            last_page: checkpoint.last_page,
-            checkpoint_on_disk: Some((checkpoint.last_page, bundle.posts.len())),
-            total_fetched: checkpoint.total_fetched,
-            api_total: checkpoint.total_posts,
-            long_text_failed: checkpoint.long_text_failed,
-            resumed_from_page: Some(checkpoint.last_page + 1),
+            base_len,
+            updating: true,
             posts: bundle.posts,
             ..Self::new()
-        }
+        };
+        (walk, 1, None)
     }
 
     async fn save_checkpoint<S: WeiboSource>(&self, context: &RunContext<'_, S>) -> Result<(), AppError> {
@@ -661,11 +767,29 @@ impl WalkState {
                 min_text_length: request.min_text_length,
                 ignore_deleted: request.ignore_deleted,
                 long_text_failed: self.long_text_failed,
+                base_posts: self.base_len,
             },
             context.export_context,
         )
         .await
     }
+}
+
+/// An update may only add to a backup made the same way, otherwise one file would hold two sets of
+/// rules. The window may shrink or move on to newer posts, but not reach further back: posts older
+/// than anything saved so far sit below the first page the walk already has, where it stops.
+fn update_allowed(backup: &BackupMeta, request: &DownloadRequest) -> Result<(), String> {
+    let oldest = |timestamp: Option<i64>| timestamp.unwrap_or(i64::MIN);
+    if backup.filter != request.filter
+        || backup.min_text_length != request.min_text_length
+        || backup.ignore_deleted != request.ignore_deleted
+    {
+        return Err("筛选条件变了，已重新完整下载".to_string());
+    }
+    if oldest(request.date_range.start_timestamp) < oldest(backup.start_timestamp) {
+        return Err("时间范围向前扩大了，已重新完整下载".to_string());
+    }
+    Ok(())
 }
 
 fn checkpoint_matches(checkpoint: &CheckpointMeta, request: &DownloadRequest) -> bool {
@@ -969,6 +1093,7 @@ mod tests {
             ignore_deleted: false,
             min_text_length: 0,
             limit: 0,
+            fresh: false,
         }
     }
 
@@ -1306,6 +1431,7 @@ mod tests {
             min_text_length: 0,
             ignore_deleted: false,
             long_text_failed: 0,
+            base_posts: 0,
         };
         let earlier: Vec<WeiboPost> = timeline(2, 3)
             .into_iter()
@@ -1582,6 +1708,218 @@ mod tests {
             events.iter().any(|event| event.message.contains("第 2 页接着下载")),
             "the error screen learns that starting again continues the download"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A post published after an earlier backup. `index` 0 is the newest.
+    fn newer(index: usize, count: usize) -> RawPost {
+        post_dated(&format!("n{index}"), index as i64 - count as i64)
+    }
+
+    fn pages_of(posts: Vec<RawPost>, per_page: usize) -> Vec<Vec<RawPost>> {
+        posts.chunks(per_page).map(|chunk| chunk.to_vec()).collect()
+    }
+
+    fn finished_backup(dir: &Path) -> BackupMeta {
+        cache_in(dir).backup.expect("the cache describes a finished backup")
+    }
+
+    #[test]
+    fn an_update_may_only_add_to_a_backup_made_the_same_way() {
+        let backup = BackupMeta {
+            uid: UID.to_string(),
+            source_type: SourceType::Profile,
+            post_count: 0,
+            author: String::new(),
+            filter: PostFilter::All,
+            min_text_length: 20,
+            ignore_deleted: true,
+            start_timestamp: Some(100),
+            end_timestamp: Some(200),
+        };
+        let window = |start: Option<i64>, end: Option<i64>| DateRange {
+            start_timestamp: start,
+            end_timestamp: end,
+        };
+
+        // Same rules, and a window that moved on or shrank: the new posts are all newer than what is saved.
+        let mut same = request(Path::new("/unused"));
+        same.min_text_length = 20;
+        same.ignore_deleted = true;
+        same.date_range = window(Some(150), Some(300));
+        assert_eq!(update_allowed(&backup, &same), Ok(()));
+        same.date_range = window(Some(100), None);
+        assert_eq!(update_allowed(&backup, &same), Ok(()));
+
+        // Another set of content rules would leave two kinds of backup in one file.
+        let mut other_rules = same.clone();
+        other_rules.min_text_length = 0;
+        assert_eq!(update_allowed(&backup, &other_rules), Err("筛选条件变了，已重新完整下载".to_string()));
+        other_rules = same.clone();
+        other_rules.filter = PostFilter::Original;
+        assert_eq!(update_allowed(&backup, &other_rules), Err("筛选条件变了，已重新完整下载".to_string()));
+
+        // Posts older than anything saved so far sit below the first page the walk already has.
+        let mut further_back = same.clone();
+        further_back.date_range = window(None, Some(300));
+        assert_eq!(update_allowed(&backup, &further_back), Err("时间范围向前扩大了，已重新完整下载".to_string()));
+        further_back.date_range = window(Some(50), Some(300));
+        assert_eq!(update_allowed(&backup, &further_back), Err("时间范围向前扩大了，已重新完整下载".to_string()));
+    }
+
+    #[tokio::test]
+    async fn an_update_adds_new_posts_in_front_and_leaves_the_rest_alone() {
+        let dir = temp_output_dir("update");
+        let (result, _, _) = run(&request(&dir), &FakeSource::new(timeline(3, 2))).await;
+        assert_eq!(result.unwrap().added, None, "a first download is not an update");
+
+        // Two newer posts push everything else one page down.
+        let mut later: Vec<RawPost> = (0..2).map(|i| newer(i, 2)).collect();
+        later.extend(timeline(3, 2).into_iter().flatten());
+        let source = FakeSource::new(pages_of(later, 2));
+
+        let (result, _, _) = run(&request(&dir), &source).await;
+        let outcome = result.unwrap();
+
+        assert_eq!((outcome.added, outcome.unchanged, outcome.saved), (Some(2), 6, 8));
+        assert_eq!(
+            (outcome.resumed_from_page, outcome.stopped_early.as_deref(), outcome.started_over.as_deref()),
+            (None, None, None)
+        );
+        assert_eq!(saved_ids(&dir), ["n0", "n1", "p0", "p1", "p2", "p3", "p4", "p5"]);
+        assert_eq!(source.requested_pages(), [1, 2], "stops on the first page it already has");
+        let bundle = cache_in(&dir);
+        assert!(bundle.checkpoint.is_none());
+        assert_eq!(bundle.backup.map(|backup| backup.post_count), Some(8));
+        assert_eq!(
+            cache::inspect_backup(&dir.to_string_lossy()).map(|backup| backup.post_count),
+            Some(8)
+        );
+        assert_eq!(outcome.summary(), "更新完成！新增 2 条微博，共 8 条");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_update_with_nothing_new_reads_one_page_and_changes_nothing() {
+        let dir = temp_output_dir("update-nothing");
+        let pages = timeline(3, 2);
+        run(&request(&dir), &FakeSource::new(pages.clone())).await.0.unwrap();
+
+        let source = FakeSource::new(pages);
+        let (result, _, _) = run(&request(&dir), &source).await;
+        let outcome = result.unwrap();
+
+        assert_eq!((outcome.added, outcome.saved), (Some(0), 6));
+        assert_eq!(source.requested_pages(), [1]);
+        assert_eq!(outcome.summary(), "更新完成！新增 0 条微博，共 6 条");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn changed_rules_start_over_instead_of_mixing_two_sets_of_posts() {
+        let dir = temp_output_dir("update-rules");
+        let pages = timeline(2, 2);
+        run(&request(&dir), &FakeSource::new(pages.clone())).await.0.unwrap();
+
+        let mut stricter = request(&dir);
+        stricter.min_text_length = 50;
+        let source = FakeSource::new(pages);
+        let (result, _, _) = run(&stricter, &source).await;
+        let outcome = result.unwrap();
+
+        assert_eq!(outcome.added, None, "a fresh download, not an update");
+        assert_eq!(outcome.started_over.as_deref(), Some("筛选条件变了，已重新完整下载"));
+        assert_eq!(outcome.saved, 0, "no post is long enough for the new rule");
+        assert_eq!(source.requested_pages(), [1, 2, 3, 4], "the whole timeline is walked again");
+        assert_eq!(finished_backup(&dir).min_text_length, 50, "the backup now records the new rule");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_window_reaching_further_back_starts_over_but_a_narrower_one_updates() {
+        let dir = temp_output_dir("update-window");
+        // p0 was posted on 2024-06-01 and p5 five days earlier; this window keeps p0 to p3.
+        let mut from_day_3 = request(&dir);
+        from_day_3.date_range.start_timestamp = Some(beijing_timestamp(2024, 5, 29, 0, 0, 0));
+
+        run(&from_day_3, &FakeSource::new(timeline(3, 2))).await.0.unwrap();
+        let (result, _, _) = run(&from_day_3, &FakeSource::new(timeline(3, 2))).await;
+        assert_eq!(result.unwrap().added, Some(0), "the same window updates");
+
+        let (result, _, _) = run(&request(&dir), &FakeSource::new(timeline(3, 2))).await;
+        let outcome = result.unwrap();
+        assert_eq!(outcome.added, None);
+        assert_eq!(outcome.started_over.as_deref(), Some("时间范围向前扩大了，已重新完整下载"));
+        assert_eq!(outcome.saved, 6, "the two older posts are fetched as well");
+
+        let (result, _, _) = run(&from_day_3, &FakeSource::new(timeline(3, 2))).await;
+        let outcome = result.unwrap();
+        assert_eq!((outcome.added, outcome.saved), (Some(0), 6), "a narrower window keeps what was saved before");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn asking_for_a_fresh_download_ignores_the_existing_backup() {
+        let dir = temp_output_dir("update-fresh");
+        run(&request(&dir), &FakeSource::new(timeline(3, 2))).await.0.unwrap();
+
+        let mut fresh = request(&dir);
+        fresh.fresh = true;
+        let source = FakeSource::new(timeline(3, 2));
+        let (result, _, _) = run(&fresh, &source).await;
+
+        assert_eq!(result.unwrap().added, None);
+        assert_eq!(source.requested_pages(), [1, 2, 3, 4, 5], "the whole timeline, then two empty pages");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_update_resumes_as_an_update() {
+        let dir = temp_output_dir("update-resume");
+        run(&request(&dir), &FakeSource::new(timeline(3, 2))).await.0.unwrap();
+
+        let mut later: Vec<RawPost> = (0..4).map(|i| newer(i, 4)).collect();
+        later.extend(timeline(3, 2).into_iter().flatten());
+        let pages = pages_of(later, 2);
+        let stopping = FakeSource {
+            fail_page_with: Some((3, Failure::Cancelled)),
+            ..FakeSource::new(pages.clone())
+        };
+        let (result, _, _) = run(&request(&dir), &stopping).await;
+        assert!(matches!(result, Err(AppError::Cancelled)));
+        let checkpoint = cache_in(&dir).checkpoint.expect("a checkpoint");
+        assert_eq!((checkpoint.last_page, checkpoint.base_posts), (2, 6));
+        assert!(
+            cache::inspect_backup(&dir.to_string_lossy()).is_none(),
+            "an interrupted run is not a finished backup any more"
+        );
+
+        let (result, _, _) = run(&request(&dir), &FakeSource::new(pages)).await;
+        let outcome = result.unwrap();
+
+        assert_eq!((outcome.added, outcome.unchanged, outcome.saved), (Some(4), 6, 10));
+        assert_eq!(outcome.resumed_from_page, Some(3));
+        assert_eq!(
+            saved_ids(&dir),
+            ["n0", "n1", "n2", "n3", "p0", "p1", "p2", "p3", "p4", "p5"],
+            "the new posts end up in front of the ones the update started from"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_backup_of_another_account_is_replaced_rather_than_updated() {
+        let dir = temp_output_dir("update-other");
+        run(&request(&dir), &FakeSource::new(timeline(2, 2))).await.0.unwrap();
+
+        let mut other = request(&dir);
+        other.uid = "9999999999".to_string();
+        let (result, _, _) = run(&other, &FakeSource::new(timeline(3, 2))).await;
+        let outcome = result.unwrap();
+
+        assert_eq!((outcome.added, outcome.started_over.as_deref()), (None, None));
+        assert_eq!(outcome.saved, 6);
+        assert_eq!(finished_backup(&dir).uid, "9999999999");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

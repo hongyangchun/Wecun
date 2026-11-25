@@ -43,6 +43,9 @@ pub struct CheckpointMeta {
     /// Long texts that failed in earlier sessions of this download, so the final report stays honest.
     #[serde(default)]
     pub long_text_failed: usize,
+    /// Posts the walk started from, when it is adding to an earlier backup.
+    #[serde(default)]
+    pub base_posts: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,4 +54,22 @@ pub struct CachedPosts {
     pub posts: Vec<WeiboPost>,
     #[serde(default)]
     pub checkpoint: Option<CheckpointMeta>,
+    /// Set once the download is finished: what the backup holds and the rules it was made with.
+    #[serde(default)]
+    pub backup: Option<BackupMeta>,
+}
+
+/// What a finished backup holds and the rules it was made with. An update may only add to a backup
+/// made with the same content rules, so they travel with the posts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupMeta {
+    pub uid: String,
+    pub source_type: SourceType,
+    pub post_count: usize,
+    pub author: String,
+    pub filter: PostFilter,
+    pub min_text_length: usize,
+    pub ignore_deleted: bool,
+    pub start_timestamp: Option<i64>,
+    pub end_timestamp: Option<i64>,
 }
