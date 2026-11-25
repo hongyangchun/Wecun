@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use tauri::{Emitter, State};
 
 use crate::error::AppError;
-use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase};
+use crate::models::{DownloadRequest, ExportFormat, ExportRequest, ProgressEvent, ProgressPhase, UserProfile};
 use crate::services::downloader::DownloadService;
 use crate::services::export_html::HtmlExportService;
 use crate::services::export_markdown::MarkdownExportService;
@@ -11,7 +11,8 @@ use crate::services::export_profile::ProfileExportService;
 use crate::services::profile::models::ProfileResult;
 use crate::services::ProfileService;
 use crate::services::weibo_api::{
-    clear_saved_cookie, load_saved_cookie, open_login_window as weibo_open_login, restore_saved_cookie,
+    clear_saved_cookie, load_saved_cookie, load_saved_session, open_login_window as weibo_open_login,
+    restore_saved_cookie, save_session_user, SavedSession,
 };
 use crate::state::AppState;
 use tauri::Manager;
@@ -164,11 +165,17 @@ pub fn get_saved_cookie(app: tauri::AppHandle) -> String {
         .unwrap_or_else(String::new)
 }
 
-/// Get current logged-in user info.
-/// Returns empty string if not logged in or on error.
+/// Returns the saved session (cookie + cached uid/screen_name) if exists.
 #[tauri::command]
-pub async fn get_current_user_info(app: tauri::AppHandle) -> String {
-    use crate::services::weibo_api::{load_saved_cookie, WeiboApiClient};
+pub fn get_saved_session(app: tauri::AppHandle) -> Option<SavedSession> {
+    load_saved_session(&app)
+}
+
+/// Get current logged-in user info (uid + screen_name).
+/// Returns None if not logged in or on error.
+#[tauri::command]
+pub async fn get_current_user_info(app: tauri::AppHandle) -> Option<UserProfile> {
+    use crate::services::weibo_api::WeiboApiClient;
 
     let client = WeiboApiClient::new(app.clone());
     let state = app.state::<AppState>();
@@ -177,22 +184,50 @@ pub async fn get_current_user_info(app: tauri::AppHandle) -> String {
     let cookie = if state.get_cookie().is_empty() {
         load_saved_cookie(&app).unwrap_or_default()
     } else {
-        state.get_cookie().clone()
+        state.get_cookie()
     };
 
     if cookie.is_empty() {
-        return String::new();
+        return None;
     }
 
     // Set cookie in state for subsequent requests
     state.set_cookie(cookie.clone());
 
-    // Try to get current user info by calling profile info without uid
-    // Weibo API should return current user's info when no uid is provided
     match client.get_current_user_info_with_cookie(&cookie).await {
-        Ok(user) => user.screen_name,
-        Err(_) => String::new(),
+        Ok(user) => {
+            save_session_user(&app, &user.uid, &user.screen_name);
+            Some(user)
+        }
+        Err(_) => None,
     }
+}
+
+/// Look up a target Weibo blogger's profile (uid + screen_name) for preview before downloading.
+#[tauri::command]
+pub async fn lookup_user_info(uid: String, app: tauri::AppHandle) -> Result<UserProfile, String> {
+    use crate::services::weibo_api::WeiboApiClient;
+
+    let trimmed = uid.trim();
+    if trimmed.is_empty() {
+        return Err("用户ID不能为空".to_string());
+    }
+    let state = app.state::<AppState>();
+    let cookie = if state.get_cookie().is_empty() {
+        load_saved_cookie(&app).unwrap_or_default()
+    } else {
+        state.get_cookie()
+    };
+    if cookie.is_empty() {
+        return Err("请先登录微博".to_string());
+    }
+    state.set_cookie(cookie.clone());
+
+    let client = WeiboApiClient::new(app);
+    client
+        .get_user_info_with_cookie(trimmed, &cookie)
+        .await
+        .map_err(|e| format!("获取博主信息失败: {e}"))
 }
 
 #[tauri::command]

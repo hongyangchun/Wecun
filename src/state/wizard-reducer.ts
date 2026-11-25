@@ -17,6 +17,7 @@ export interface WizardState {
   isLoggingIn: boolean;
   cookie: string;
   username: string;
+  currentUid: string;
   usernameFetchFailed: boolean;
   loginError?: string;
   profileUrl: string;
@@ -29,6 +30,7 @@ export interface WizardState {
   minTextLength: number;
   limit: number;
   exportFormat: ExportFormat;
+  exportedFormats: ExportFormat[];
   outputDir: string;
   processStatus: ProcessStatus;
   progress: number;
@@ -46,6 +48,7 @@ export const INITIAL_STATE: WizardState = {
   isLoggingIn: false,
   cookie: "",
   username: "",
+  currentUid: "",
   usernameFetchFailed: false,
   loginError: undefined,
   profileUrl: "",
@@ -58,6 +61,7 @@ export const INITIAL_STATE: WizardState = {
   minTextLength: 20,
   limit: 1000,
   exportFormat: "html",
+  exportedFormats: [],
   outputDir: "",
   processStatus: "idle",
   progress: 0,
@@ -74,9 +78,10 @@ export type WizardAction =
   | { type: "NEXT_STEP" }
   | { type: "PREV_STEP" }
   | { type: "LOGIN_START" }
+  | { type: "LOGIN_CANCEL" }
   | { type: "SET_COOKIE"; cookie: string }
-  | { type: "LOGIN_SUCCESS"; cookie: string; username?: string }
-  | { type: "SET_USERNAME"; username: string }
+  | { type: "LOGIN_SUCCESS"; cookie: string; username?: string; uid?: string }
+  | { type: "SET_USERNAME"; username: string; uid?: string }
   | { type: "USERNAME_FETCH_FAILED" }
   | { type: "LOGIN_INVALID"; message: string }
   | { type: "LOGOUT" }
@@ -90,6 +95,7 @@ export type WizardAction =
   | { type: "SET_MIN_TEXT_LENGTH"; value: number }
   | { type: "SET_LIMIT"; value: number }
   | { type: "SET_EXPORT_FORMAT"; format: ExportFormat }
+  | { type: "MARK_EXPORTED"; format: ExportFormat }
   | { type: "SET_OUTPUT_DIR"; dir: string }
   | { type: "SET_SOURCE_TYPE"; sourceType: "profile" | "favorites" }
   | { type: "START_PROCESSING" }
@@ -99,6 +105,7 @@ export type WizardAction =
   | { type: "PROCESS_COMPLETE" }
   | { type: "PROCESS_ERROR"; message: string }
   | { type: "PROCESS_CANCEL" }
+  | { type: "CLOSE_PROCESSING" }
   | { type: "ADD_LOG"; message: string }
   | { type: "RESET" };
 
@@ -135,30 +142,41 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "LOGIN_START":
       return { ...state, isLoggingIn: true };
 
+    case "LOGIN_CANCEL":
+      return { ...state, isLoggingIn: false };
+
     case "SET_COOKIE":
       return { ...state, cookie: action.cookie };
 
-  case "LOGIN_SUCCESS":
+    case "LOGIN_SUCCESS":
       return {
         ...state,
         cookie: action.cookie,
         isLoggedIn: true,
         isLoggingIn: false,
         username: action.username ?? state.username,
+        currentUid: action.uid ?? state.currentUid,
         loginError: undefined,
         step: state.step === 0 ? 1 : state.step,
       };
 
-  case "SET_USERNAME":
-      return { ...state, username: action.username, usernameFetchFailed: false };
+    case "SET_USERNAME":
+      return {
+        ...state,
+        username: action.username,
+        currentUid: action.uid ?? state.currentUid,
+        usernameFetchFailed: false,
+      };
 
-  case "USERNAME_FETCH_FAILED":
+    case "USERNAME_FETCH_FAILED":
       return { ...state, usernameFetchFailed: true };
 
     case "LOGIN_INVALID":
       return {
         ...state,
         cookie: "",
+        username: "",
+        currentUid: "",
         isLoggedIn: false,
         isLoggingIn: false,
         loginError: action.message,
@@ -174,6 +192,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         isLoggedIn: false,
         isLoggingIn: false,
         username: "",
+        currentUid: "",
         usernameFetchFailed: false,
         loginError: undefined,
         step: 0,
@@ -209,6 +228,11 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "SET_EXPORT_FORMAT":
       return { ...state, exportFormat: action.format };
 
+    case "MARK_EXPORTED":
+      return state.exportedFormats.includes(action.format)
+        ? state
+        : { ...state, exportedFormats: [...state.exportedFormats, action.format] };
+
     case "SET_OUTPUT_DIR":
       return { ...state, outputDir: action.dir };
 
@@ -224,6 +248,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         current: 0,
         total: 0,
         errorMessage: undefined,
+        exportedFormats: [],
         logs: ["开始下载..."],
       };
 
@@ -310,11 +335,30 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         phase: "已取消",
       };
 
+    case "CLOSE_PROCESSING":
+      return {
+        ...state,
+        processStatus: "idle",
+        progress: 0,
+        phase: "",
+        current: 0,
+        total: 0,
+        errorMessage: undefined,
+        exportedFormats: [],
+        logs: [],
+      };
+
     case "ADD_LOG":
       return { ...state, logs: appendLog(state.logs, action.message) };
 
     case "RESET":
-      return { ...INITIAL_STATE, isLoggedIn: state.isLoggedIn, cookie: state.cookie, username: state.username };
+      return {
+        ...INITIAL_STATE,
+        isLoggedIn: state.isLoggedIn,
+        cookie: state.cookie,
+        username: state.username,
+        currentUid: state.currentUid,
+      };
 
     default:
       return state;

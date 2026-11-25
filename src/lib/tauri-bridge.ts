@@ -3,7 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import type { DownloadRequest, ExportRequest, ProgressEvent, ProfileResult } from "../types/contracts";
+import type {
+  DownloadRequest,
+  ExportRequest,
+  ProgressEvent,
+  ProfileResult,
+  SavedSession,
+  UserProfile,
+} from "../types/contracts";
 
 export interface UpdateProgressStartedEvent {
   event: "Started";
@@ -65,9 +72,19 @@ export async function getSavedCookie(): Promise<string> {
   return await invoke<string>("get_saved_cookie");
 }
 
-/** Get current logged-in user info. Returns screen name or empty string if not logged in. */
-export async function getCurrentUserInfo(): Promise<string> {
-  return await invoke<string>("get_current_user_info");
+/** Returns the saved session (cookie + cached user profile) if exists. */
+export async function getSavedSession(): Promise<SavedSession | null> {
+  return await invoke<SavedSession | null>("get_saved_session");
+}
+
+/** Get current logged-in user info (uid + screen_name). Returns null if not logged in. */
+export async function getCurrentUserInfo(): Promise<UserProfile | null> {
+  return await invoke<UserProfile | null>("get_current_user_info");
+}
+
+/** Look up a target blogger's profile for preview before downloading. */
+export async function lookupUserInfo(uid: string): Promise<UserProfile> {
+  return await invoke<UserProfile>("lookup_user_info", { uid });
 }
 
 export async function loadSavedCookie(): Promise<string> {
@@ -124,6 +141,10 @@ export function onCookieReceived(callback: (cookie: string) => void) {
 
 export function onLoginInvalid(callback: (message: string) => void) {
   return listen<string>("login-invalid", (e) => callback(e.payload));
+}
+
+export function onLoginWindowClosed(callback: () => void) {
+  return listen<string>("login-window-closed", () => callback());
 }
 
 export async function analyzeProfile(outputDir: string): Promise<ProfileResult> {

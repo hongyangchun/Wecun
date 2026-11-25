@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import StepIndicator from "./components/StepIndicator";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import pkg from "../package.json";
 import StepLogin from "./components/StepLogin";
-import StepTarget from "./components/StepTarget";
-import StepOptions from "./components/StepOptions";
-import StepExportSettings from "./components/StepExportSettings";
+import WorkspaceForm from "./components/WorkspaceForm";
 import StepProcessing from "./components/StepProcessing";
 import ProfilePanel from "./components/ProfilePanel";
 import { WizardProvider, useWizard } from "./state/wizard-context";
@@ -21,10 +19,12 @@ import {
   type UpdateProgressEvent,
 } from "./lib/tauri-bridge";
 import { buildDownloadRequest, extractUidFromUrl, isValidProfileUrl } from "./lib/validation";
-import type { ExportFormat, ProfileResult } from "./types/contracts";
+import type { ExportFormat, ProfileResult, RecentTarget } from "./types/contracts";
 import "./App.css";
 
-const STEPS = ["登录", "目标", "选项", "保存"];
+const APP_VERSION = pkg.version;
+const RECENT_TARGETS_KEY = "wecun-recent-targets";
+const MAX_RECENT_TARGETS = 5;
 
 type UpdateToastStatus = "hidden" | "available" | "downloading" | "installing" | "up-to-date" | "error";
 
@@ -47,6 +47,33 @@ const INITIAL_UPDATE_TOAST: UpdateToastState = {
   chunkCount: 0,
   errorMessage: "",
 };
+
+function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return true;
+  return /mac/i.test(navigator.platform || navigator.userAgent || "");
+}
+
+function loadRecentTargets(): RecentTarget[] {
+  try {
+    const raw = localStorage.getItem(RECENT_TARGETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is RecentTarget => Boolean(item && typeof item.uid === "string" && typeof item.screenName === "string"))
+      .slice(0, MAX_RECENT_TARGETS);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentTargets(items: RecentTarget[]) {
+  try {
+    localStorage.setItem(RECENT_TARGETS_KEY, JSON.stringify(items.slice(0, MAX_RECENT_TARGETS)));
+  } catch {
+    void 0;
+  }
+}
 
 function formatLabel(fmt: ExportFormat): string {
   const labels: Record<ExportFormat, string> = {
@@ -98,7 +125,6 @@ function usePrefersReducedMotion() {
   return prefersReducedMotion;
 }
 
-// UpdateToast 样式常量 - 避免每次渲染创建新对象
 const toastContainerStyle: React.CSSProperties = {
   position: "fixed",
   top: 16,
@@ -151,7 +177,7 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
       : state.status === "installing"
         ? "下载完成，正在应用更新…"
         : state.status === "up-to-date"
-          ? "当前已经是最新的微存版本。"
+          ? `当前微存 v${APP_VERSION} 已是最新版本。`
           : state.errorMessage;
 
   return (
@@ -220,64 +246,104 @@ function AppShell() {
   const [profileAuthorName, setProfileAuthorName] = useState<string | null>(null);
   const [profileOutputDir, setProfileOutputDir] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [recentTargets, setRecentTargets] = useState<RecentTarget[]>(loadRecentTargets);
+  const [resolvedAuthor, setResolvedAuthor] = useState<{ uid: string; screenName: string } | null>(null);
+  const modKey = useMemo(() => (isMacPlatform() ? "⌘" : "Ctrl+"), []);
 
-  const canGoNext = useCallback(() => {
-    if (state.step === 0) return state.isLoggedIn;
-    if (state.step === 1) {
-      if (state.sourceType === "favorites") return true;
-      return state.profileUrl.length > 0 && isValidProfileUrl(state.profileUrl);
-    }
-    if (state.step === 2) {
-      if (state.sourceType === "favorites") return true;
+  const handleResolvedAuthor = useCallback((uid: string, screenName: string) => {
+    setResolvedAuthor({ uid, screenName });
+  }, []);
+
+  const recordRecentTarget = useCallback((uid: string, screenName: string) => {
+    if (!uid) return;
+    setRecentTargets((prev) => {
+      const next = [
+        { uid, screenName: screenName || uid },
+        ...prev.filter((item) => item.uid !== uid),
+      ].slice(0, MAX_RECENT_TARGETS);
+      saveRecentTargets(next);
+      return next;
+    });
+  }, []);
+
+  const handleRemoveRecentTarget = useCallback((uid: string) => {
+    setRecentTargets((prev) => {
+      const next = prev.filter((item) => item.uid !== uid);
+      saveRecentTargets(next);
+      return next;
+    });
+  }, []);
+
+  const validationError = useMemo(() => {
+    if (!state.isLoggedIn) return "请先扫码登录微博";
+    if (state.sourceType === "profile") {
+      if (!state.profileUrl || !isValidProfileUrl(state.profileUrl)) {
+        return "请输入有效的微博主页链接或 UID";
+      }
       if (state.downloadRange === "range") {
-        return !!state.dateStart && !!state.dateEnd && state.dateStart <= state.dateEnd;
+        if (!state.dateStart || !state.dateEnd) return "请选择开始和结束日期";
+        if (state.dateStart > state.dateEnd) return "开始日期不能晚于结束日期";
       }
-      return true;
     }
-    if (state.step === 3) return !!state.outputDir;
-    return true;
-  }, [state.step, state.isLoggedIn, state.profileUrl, state.outputDir, state.sourceType, state.downloadRange, state.dateStart, state.dateEnd]);
+    if (!state.outputDir) return "请选择保存目录";
+    return null;
+  }, [
+    state.isLoggedIn,
+    state.sourceType,
+    state.profileUrl,
+    state.downloadRange,
+    state.dateStart,
+    state.dateEnd,
+    state.outputDir,
+  ]);
 
-  const handleNext = useCallback(async () => {
-    if (state.step === 3) {
-      dispatch({ type: "START_PROCESSING" });
+  const canStartDownload = validationError === null && !isProcessing;
 
-      try {
-        const uid = state.sourceType === "favorites" ? "" : extractUidFromUrl(state.profileUrl) || "";
-        if (state.sourceType === "profile" && !extractUidFromUrl(state.profileUrl)) {
-          dispatch({ type: "PROCESS_ERROR", message: "无法从链接中提取用户ID" });
-          return;
-        }
+  const handleStartDownload = useCallback(async () => {
+    if (!canStartDownload) return;
+    dispatch({ type: "START_PROCESSING" });
 
-        const result = await startDownload(buildDownloadRequest({
-          uid,
-          cookie: state.cookie,
-          filter: state.postFilter,
-          includeImages: state.includeImages,
-          downloadRange: state.downloadRange,
-          dateStart: state.dateStart,
-          dateEnd: state.dateEnd,
-          outputDir: state.outputDir,
-          ignoreDeleted: state.ignoreDeleted,
-          minTextLength: state.minTextLength,
-          limit: state.limit,
-          sourceType: state.sourceType,
-        }));
-
-        dispatch({ type: "ADD_LOG", message: result });
-        dispatch({ type: "DOWNLOAD_COMPLETE" });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("已取消")) {
-          dispatch({ type: "PROCESS_CANCEL" });
-        } else {
-          dispatch({ type: "PROCESS_ERROR", message: msg });
-        }
+    try {
+      const uid = state.sourceType === "favorites" ? "" : extractUidFromUrl(state.profileUrl) || "";
+      if (state.sourceType === "profile" && !uid) {
+        dispatch({ type: "PROCESS_ERROR", message: "无法从链接中提取用户ID" });
+        return;
       }
-    } else if (canGoNext()) {
-      dispatch({ type: "NEXT_STEP" });
+
+      if (state.sourceType === "profile" && uid) {
+        const displayName =
+          resolvedAuthor && resolvedAuthor.uid === uid
+            ? resolvedAuthor.screenName
+            : recentTargets.find((t) => t.uid === uid)?.screenName || uid;
+        recordRecentTarget(uid, displayName);
+      }
+
+      const result = await startDownload(buildDownloadRequest({
+        uid,
+        cookie: state.cookie,
+        filter: state.postFilter,
+        includeImages: state.includeImages,
+        downloadRange: state.downloadRange,
+        dateStart: state.dateStart,
+        dateEnd: state.dateEnd,
+        outputDir: state.outputDir,
+        ignoreDeleted: state.ignoreDeleted,
+        minTextLength: state.minTextLength,
+        limit: state.limit,
+        sourceType: state.sourceType,
+      }));
+
+      dispatch({ type: "ADD_LOG", message: result });
+      dispatch({ type: "DOWNLOAD_COMPLETE" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("已取消")) {
+        dispatch({ type: "PROCESS_CANCEL" });
+      } else {
+        dispatch({ type: "PROCESS_ERROR", message: msg });
+      }
     }
-  }, [state, dispatch, canGoNext]);
+  }, [canStartDownload, state, dispatch, resolvedAuthor, recentTargets, recordRecentTarget]);
 
   const handleExport = useCallback(async (format: ExportFormat) => {
     dispatch({ type: "EXPORT_START" });
@@ -288,6 +354,7 @@ function AppShell() {
         output_dir: state.outputDir,
         export_format: format,
       });
+      dispatch({ type: "MARK_EXPORTED", format });
       dispatch({ type: "ADD_LOG", message: exportResult });
       dispatch({ type: "PROCESS_COMPLETE" });
     } catch (err: unknown) {
@@ -300,22 +367,18 @@ function AppShell() {
     dispatch({ type: "DOWNLOAD_COMPLETE" });
   }, [dispatch]);
 
-  const handleBack = useCallback(() => {
-    dispatch({ type: "PREV_STEP" });
-  }, [dispatch]);
-
   const handleStop = useCallback(async () => {
     await cancelDownload();
     dispatch({ type: "ADD_LOG", message: "正在取消..." });
   }, [dispatch]);
 
-  const handleReset = useCallback(() => {
-    dispatch({ type: "RESET" });
+  const handleCloseProcessing = useCallback(() => {
+    dispatch({ type: "CLOSE_PROCESSING" });
   }, [dispatch]);
 
   const handleGoToLogin = useCallback(() => {
     dispatch({ type: "LOGOUT" });
-    dispatch({ type: "RESET" });
+    dispatch({ type: "CLOSE_PROCESSING" });
   }, [dispatch]);
 
   const handleOpenOutputDir = useCallback(async () => {
@@ -333,7 +396,9 @@ function AppShell() {
     try {
       const result = await analyzeProfile(state.outputDir);
       setProfileResult(result);
-      setProfileAuthorName(result.authorName || extractUidFromUrl(state.profileUrl) || "博主");
+      const fallbackName =
+        resolvedAuthor?.screenName || extractUidFromUrl(state.profileUrl) || "博主";
+      setProfileAuthorName(result.authorName || fallbackName);
       dispatch({ type: "DOWNLOAD_COMPLETE" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -341,7 +406,7 @@ function AppShell() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [state.outputDir, state.profileUrl, dispatch]);
+  }, [state.outputDir, state.profileUrl, resolvedAuthor, dispatch]);
 
   const handleExportOpenclaw = useCallback(async () => {
     if (!profileResult) throw new Error("No profile result available");
@@ -478,55 +543,35 @@ function AppShell() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + Enter: 下一步
+      // Cmd/Ctrl + Enter: 开始下载
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        if (canGoNext()) handleNext();
+        if (canStartDownload) {
+          e.preventDefault();
+          void handleStartDownload();
+        }
         return;
       }
 
-      // Escape: 上一步或关闭对话框
+      // Escape: 关闭画像弹窗
       if (e.key === "Escape") {
         if (profileResult) {
           e.preventDefault();
           handleCloseProfile();
-        } else if (state.step > 0 && !isProcessing) {
-          e.preventDefault();
-          handleBack();
         }
         return;
       }
 
-      // Cmd/Ctrl + [: 上一步
-      if ((e.metaKey || e.ctrlKey) && e.key === "[") {
-        if (state.step > 0 && !isProcessing) {
-          e.preventDefault();
-          handleBack();
-        }
-        return;
-      }
-
-      // Cmd/Ctrl + ] : 下一步
-      if ((e.metaKey || e.ctrlKey) && e.key === "]") {
-        if (canGoNext()) {
-          e.preventDefault();
-          handleNext();
-        }
-        return;
-      }
-
-      // Cmd/Ctrl + . : 打开输出目录（仅在下载完成后）
+      // Cmd/Ctrl + . : 打开输出目录
       if ((e.metaKey || e.ctrlKey) && e.key === ".") {
-        if (state.outputDir && (state.processStatus === "done" || state.processStatus === "downloaded")) {
+        if (state.outputDir) {
           e.preventDefault();
           void handleOpenOutputDir();
         }
-        return;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNext, handleBack, state.step, isProcessing, canGoNext, state.outputDir, state.processStatus, profileResult, state.isLoggedIn, handleOpenOutputDir, handleCloseProfile]);
+  }, [canStartDownload, handleStartDownload, profileResult, handleCloseProfile, state.outputDir, handleOpenOutputDir]);
 
   useEffect(() => {
     if (updateToast.status !== "up-to-date") return;
@@ -537,7 +582,6 @@ function AppShell() {
   }, [updateToast.status]);
 
   useEffect(() => {
-    // Defer initial update check to allow UI to render first
     const timer = setTimeout(() => {
       void runUpdateCheck(false);
     }, 500);
@@ -556,9 +600,22 @@ function AppShell() {
     };
   }, [runUpdateCheck]);
 
-  const showFooter = !isProcessing;
+  const footerSummary = useMemo(() => {
+    if (validationError) return validationError;
+    const targetPart =
+      state.sourceType === "favorites"
+        ? "我的收藏"
+        : resolvedAuthor && resolvedAuthor.uid === extractUidFromUrl(state.profileUrl)
+          ? `@${resolvedAuthor.screenName}`
+          : `UID ${extractUidFromUrl(state.profileUrl)}`;
+    const rangePart =
+      state.sourceType === "favorites" || state.downloadRange === "all"
+        ? "全部时间"
+        : `${state.dateStart} ~ ${state.dateEnd}`;
+    const imgPart = state.includeImages ? "含图" : "纯文本";
+    return `${targetPart} · ${rangePart} · ${imgPart}`;
+  }, [validationError, state.sourceType, state.profileUrl, state.downloadRange, state.dateStart, state.dateEnd, state.includeImages, resolvedAuthor]);
 
-  // Show loading screen during initialization to avoid blank flash
   if (!initialized) {
     return (
       <div className="app-shell">
@@ -583,26 +640,28 @@ function AppShell() {
       <div className="app-window">
         <header className="app-header">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h1 className="app-title">微存 <span style={{ fontSize: "0.5em", opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>Wecun</span></h1>
+            <h1 className="app-title">微存</h1>
             <button
-              className="logout-btn"
+              className="version-pill-btn"
               onClick={() => void runUpdateCheck(true)}
               disabled={isCheckingUpdate}
               type="button"
-              title="检查新版本"
+              title="点击检查新版本"
             >
-              {isCheckingUpdate ? "检查中..." : "检查更新"}
+              {isCheckingUpdate ? "检查中..." : `v${APP_VERSION} · 检查更新`}
             </button>
           </div>
           {state.isLoggedIn && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span className="auth-badge">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                className="auth-badge"
+                title={state.currentUid ? `UID: ${state.currentUid}` : undefined}
+              >
                 <span className="auth-dot" />
                 {state.username ? `@${state.username}` : "已登录"}
               </span>
               {confirmLogout ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>确认退出账号？</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <button
                     className="logout-btn"
                     style={{ color: "var(--color-danger)" }}
@@ -614,7 +673,7 @@ function AppShell() {
                     }}
                     type="button"
                   >
-                    退出账号
+                    确认退出
                   </button>
                   <button
                     className="logout-btn"
@@ -637,10 +696,8 @@ function AppShell() {
           )}
         </header>
 
-        <StepIndicator steps={STEPS} currentStep={state.step} />
-
-        <div className="step-content">
-          {state.step === 0 && (
+        <div className="step-content" style={{ padding: state.isLoggedIn ? "20px 24px" : "32px 28px" }}>
+          {!state.isLoggedIn ? (
             <StepLogin
               isLoggedIn={state.isLoggedIn}
               isLoggingIn={state.isLoggingIn}
@@ -649,90 +706,60 @@ function AppShell() {
               restoreError={state.loginError}
               dispatch={dispatch}
             />
-          )}
-          {state.step === 1 && (
-            <StepTarget
+          ) : (
+            <WorkspaceForm
+              sourceType={state.sourceType}
+              onSourceTypeChange={(sourceType) => dispatch({ type: "SET_SOURCE_TYPE", sourceType })}
               profileUrl={state.profileUrl}
               onProfileUrlChange={(url) => dispatch({ type: "SET_PROFILE_URL", url })}
-              onNext={() => dispatch({ type: "NEXT_STEP" })}
-              sourceType={state.sourceType}
-              onSourceTypeChange={(type) => dispatch({ type: "SET_SOURCE_TYPE", sourceType: type })}
-            />
-          )}
-          {state.step === 2 && (
-            <StepOptions
+              currentUsername={state.username}
+              currentUid={state.currentUid}
+              recentTargets={recentTargets}
+              onRemoveRecentTarget={handleRemoveRecentTarget}
+              onResolvedAuthor={handleResolvedAuthor}
               postFilter={state.postFilter}
-              onPostFilterChange={(f) => dispatch({ type: "SET_POST_FILTER", filter: f })}
+              onPostFilterChange={(filter) => dispatch({ type: "SET_POST_FILTER", filter })}
               includeImages={state.includeImages}
-              onIncludeImagesChange={(v) => dispatch({ type: "SET_INCLUDE_IMAGES", value: v })}
+              onIncludeImagesChange={(value) => dispatch({ type: "SET_INCLUDE_IMAGES", value })}
               downloadRange={state.downloadRange}
-              onDownloadRangeChange={(r) => dispatch({ type: "SET_DOWNLOAD_RANGE", range: r })}
+              onDownloadRangeChange={(range) => dispatch({ type: "SET_DOWNLOAD_RANGE", range })}
               dateStart={state.dateStart}
-              onDateStartChange={(d) => dispatch({ type: "SET_DATE_START", date: d })}
+              onDateStartChange={(date) => dispatch({ type: "SET_DATE_START", date })}
               dateEnd={state.dateEnd}
-              onDateEndChange={(d) => dispatch({ type: "SET_DATE_END", date: d })}
+              onDateEndChange={(date) => dispatch({ type: "SET_DATE_END", date })}
               ignoreDeleted={state.ignoreDeleted}
-              onIgnoreDeletedChange={(v) => dispatch({ type: "SET_IGNORE_DELETED", value: v })}
+              onIgnoreDeletedChange={(value) => dispatch({ type: "SET_IGNORE_DELETED", value })}
               minTextLength={state.minTextLength}
-              onMinTextLengthChange={(v) => dispatch({ type: "SET_MIN_TEXT_LENGTH", value: v })}
-              sourceType={state.sourceType}
-            />
-          )}
-          {state.step === 3 && (
-            <StepExportSettings
+              onMinTextLengthChange={(value) => dispatch({ type: "SET_MIN_TEXT_LENGTH", value })}
               outputDir={state.outputDir}
               onDirChange={(dir) => dispatch({ type: "SET_OUTPUT_DIR", dir })}
+              onOpenOutputDir={handleOpenOutputDir}
+              onStartDownload={handleStartDownload}
+              canStart={canStartDownload}
             />
           )}
         </div>
 
-        {showFooter && (
-          <>
-            <div className="step-footer">
-              <div>
-                {state.step > 0 && (
-                  <button className="btn btn-secondary" onClick={handleBack} type="button" title="快捷键: ⌘[ 或 Esc">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-                      <path d="M8 3L4 7L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    上一步
-                    <kbd style={{ fontSize: 10, opacity: 0.5, fontFamily: "var(--font-sans)", marginLeft: 4 }}>⌘[</kbd>
-                  </button>
-                )}
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={handleNext}
-                disabled={!canGoNext()}
-                type="button"
-                title="快捷键: ⌘Enter 或 ⌘]"
-              >
-                {state.step === 3 ? "开始下载" : (
-                  <>
-                    下一步
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path d="M6 3L10.5 8L6 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </>
-                )}
-                {canGoNext() && (
-                  <kbd style={{ fontSize: 10, opacity: 0.5, fontFamily: "var(--font-sans)", marginLeft: 4 }}>⌘↵</kbd>
-                )}
-              </button>
-            </div>
-            {!canGoNext() && (
-              <div className="step-hint">
-                {state.step === 0 && "请先登录微博账号"}
-                {state.step === 1 && state.sourceType === "profile" && "请输入有效的微博主页地址"}
-                {state.step === 2 && state.sourceType === "profile" && state.downloadRange === "range" && (
-                  state.dateStart && state.dateEnd && state.dateStart > state.dateEnd
-                    ? "开始日期不能晚于结束日期"
-                    : "请选择开始和结束日期"
-                )}
-                {state.step === 3 && "请选择保存目录"}
-              </div>
-            )}
-          </>
+        {state.isLoggedIn && !isProcessing && (
+          <div className="step-footer">
+            <span className="footer-summary" title={footerSummary}>
+              {footerSummary}
+            </span>
+            <button
+              className="btn btn-primary"
+              onClick={handleStartDownload}
+              disabled={!canStartDownload}
+              type="button"
+              title={`快捷键: ${modKey}Enter`}
+            >
+              开始下载
+              {canStartDownload && (
+                <kbd style={{ fontSize: 10, opacity: 0.65, fontFamily: "var(--font-sans)", marginLeft: 4 }}>
+                  {modKey}↵
+                </kbd>
+              )}
+            </button>
+          </div>
         )}
 
         {isProcessing && !profileResult && (
@@ -743,9 +770,10 @@ function AppShell() {
             current={state.current}
             total={state.total}
             errorMessage={state.errorMessage}
+            exportedFormats={state.exportedFormats}
             logs={state.logs}
             onStop={handleStop}
-            onReset={handleReset}
+            onReset={handleCloseProcessing}
             onGoToLogin={handleGoToLogin}
             onExport={handleExport}
             onContinueExport={handleContinueExport}
@@ -760,7 +788,7 @@ function AppShell() {
             <div className="processing-dialog" style={{ maxWidth: 520 }}>
               <ProfilePanel
                 profile={profileResult}
-                authorName={profileAuthorName || state.profileUrl.split("/").pop() || "博主"}
+                authorName={profileAuthorName || resolvedAuthor?.screenName || extractUidFromUrl(state.profileUrl) || "博主"}
                 onExportOpenclaw={handleExportOpenclaw}
                 onClose={handleCloseProfile}
               />

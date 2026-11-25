@@ -12,9 +12,12 @@ vi.mock("../lib/tauri-bridge", () => ({
   onProgress: vi.fn().mockResolvedValue(vi.fn()),
   onCookieReceived: vi.fn().mockResolvedValue(vi.fn()),
   onLoginInvalid: vi.fn().mockResolvedValue(vi.fn()),
+  onLoginWindowClosed: vi.fn().mockResolvedValue(vi.fn()),
   hasSavedCookie: vi.fn().mockResolvedValue(false),
   getSavedCookie: vi.fn().mockResolvedValue(""),
-  getCurrentUserInfo: vi.fn().mockResolvedValue(""),
+  getSavedSession: vi.fn().mockResolvedValue(null),
+  getCurrentUserInfo: vi.fn().mockResolvedValue(null),
+  lookupUserInfo: vi.fn().mockResolvedValue({ uid: "1", screen_name: "测试" }),
   setCookie: vi.fn().mockResolvedValue(undefined),
   loadSavedCookie: vi.fn().mockResolvedValue(""),
   analyzeProfile: vi.fn(),
@@ -112,7 +115,7 @@ describe("App updater flow", () => {
 
     render(<App />);
 
-    const checkBtn = await screen.findByRole("button", { name: "检查更新" });
+    const checkBtn = await screen.findByRole("button", { name: /检查更新/ });
     fireEvent.click(checkBtn);
 
     expect(await screen.findByText("已是最新版本")).toBeTruthy();

@@ -9,6 +9,8 @@ import {
   onProgress,
   onCookieReceived,
   onLoginInvalid,
+  onLoginWindowClosed,
+  getSavedSession,
   getSavedCookie,
   getCurrentUserInfo,
   setCookie,
@@ -62,21 +64,38 @@ export function WizardProvider({ children }: WizardProviderProps) {
     onCookieReceived(async (cookie) => {
       if (cancelled) return;
       dispatch({ type: "LOGIN_SUCCESS", cookie });
-      // Fetch username after successful login
+      // Fetch username + uid after successful login
       try {
-        const username = await getCurrentUserInfo();
+        const user = await getCurrentUserInfo();
         if (cancelled) return;
-        if (username) {
-          dispatch({ type: "SET_USERNAME", username });
+        if (user && user.screen_name) {
+          dispatch({ type: "SET_USERNAME", username: user.screen_name, uid: user.uid });
         } else {
-          // No username returned - might indicate cookie not fully validated yet
           dispatch({ type: "USERNAME_FETCH_FAILED" });
         }
       } catch {
         if (cancelled) return;
-        // Username fetch failed - might indicate cookie validation issue
         dispatch({ type: "USERNAME_FETCH_FAILED" });
       }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    onLoginWindowClosed(() => {
+      if (cancelled) return;
+      dispatch({ type: "LOGIN_CANCEL" });
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -109,19 +128,32 @@ export function WizardProvider({ children }: WizardProviderProps) {
     };
   }, []);
 
-  // Load saved cookie on mount - prefill cookie and silently validate
+  // Load saved session on mount - restore cached profile immediately and silently validate
   useEffect(() => {
-    const loadCookie = async () => {
+    const loadSession = async () => {
       try {
-        const cookie = await getSavedCookie();
+        const session = typeof getSavedSession === "function" ? await getSavedSession() : null;
+        const cookie = session?.cookie || (typeof getSavedCookie === "function" ? await getSavedCookie() : "");
         if (cookie) {
           dispatch({ type: "SET_COOKIE", cookie });
-          // Set cookie in backend state first, then validate
           try {
             await setCookie(cookie);
-            const username = await getCurrentUserInfo();
-            if (username) {
-              dispatch({ type: "LOGIN_SUCCESS", cookie, username });
+            const user = await getCurrentUserInfo();
+            if (user && user.screen_name) {
+              dispatch({
+                type: "LOGIN_SUCCESS",
+                cookie,
+                username: user.screen_name,
+                uid: user.uid,
+              });
+            } else if (session?.screen_name) {
+              // Fall back to cached session profile if network check was inconclusive
+              dispatch({
+                type: "LOGIN_SUCCESS",
+                cookie,
+                username: session.screen_name,
+                uid: session.uid ?? undefined,
+              });
             }
           } catch {
             // Cookie invalid or expired, user will need to login manually
@@ -133,7 +165,7 @@ export function WizardProvider({ children }: WizardProviderProps) {
         setInitialized(true);
       }
     };
-    loadCookie();
+    loadSession();
   }, []);
 
   useEffect(() => {
@@ -148,6 +180,9 @@ export function WizardProvider({ children }: WizardProviderProps) {
         if (s.downloadRange) dispatch({ type: "SET_DOWNLOAD_RANGE", range: s.downloadRange });
         if (s.ignoreDeleted !== undefined) dispatch({ type: "SET_IGNORE_DELETED", value: s.ignoreDeleted });
         if (s.minTextLength !== undefined) dispatch({ type: "SET_MIN_TEXT_LENGTH", value: s.minTextLength });
+        if (typeof s.outputDir === "string" && s.outputDir) {
+          dispatch({ type: "SET_OUTPUT_DIR", dir: s.outputDir });
+        }
       }
     } catch {
       void 0;
@@ -162,11 +197,19 @@ export function WizardProvider({ children }: WizardProviderProps) {
         downloadRange: state.downloadRange,
         ignoreDeleted: state.ignoreDeleted,
         minTextLength: state.minTextLength,
+        outputDir: state.outputDir,
       }));
     } catch {
       void 0;
     }
-  }, [state.postFilter, state.includeImages, state.downloadRange, state.ignoreDeleted, state.minTextLength]);
+  }, [
+    state.postFilter,
+    state.includeImages,
+    state.downloadRange,
+    state.ignoreDeleted,
+    state.minTextLength,
+    state.outputDir,
+  ]);
 
   return (
     <WizardContext.Provider value={{ state, dispatch, initialized }}>

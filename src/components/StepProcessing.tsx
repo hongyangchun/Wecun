@@ -1,4 +1,4 @@
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, useEffect, memo } from "react";
 import { LogPanel, ProgressRing } from "./ui";
 import { DONATION_CONFIG } from "../lib/app-config";
 import type { ProcessStatus } from "../state/wizard-reducer";
@@ -39,6 +39,7 @@ interface StepProcessingProps {
   current: number;
   total: number;
   errorMessage?: string;
+  exportedFormats?: ExportFormat[];
   logs: string[];
   onStop: () => void;
   onReset: () => void;
@@ -59,6 +60,7 @@ const StepProcessingComponent = ({
   current,
   total,
   errorMessage,
+  exportedFormats = [],
   logs,
   onStop,
   onReset,
@@ -70,6 +72,13 @@ const StepProcessingComponent = ({
   sourceType,
 }: StepProcessingProps) => {
   const [showDonation, setShowDonation] = useState(false);
+  const [logsExpanded, setLogsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (processStatus === "error" || processStatus === "cancelled") {
+      setLogsExpanded(true);
+    }
+  }, [processStatus]);
 
   const handleClose = useCallback(() => {
     setShowDonation(true);
@@ -103,8 +112,27 @@ const StepProcessingComponent = ({
     riskKeywordCounts.blocked >= 2 ||
     riskKeywordCounts.forbidden >= 1;
 
-  const renderLog = () =>
-    logs.length > 0 ? <LogPanel logs={logs} /> : null;
+  const latestLog = logs.length > 0 ? logs[logs.length - 1] : "";
+
+  const renderLog = () => {
+    if (logs.length === 0) return null;
+    return (
+      <div style={{ marginTop: 12 }}>
+        <div className="log-toggle-bar">
+          <span className="log-toggle-latest" title={latestLog}>{latestLog}</span>
+          <button
+            type="button"
+            className="logout-btn"
+            style={{ flexShrink: 0 }}
+            onClick={() => setLogsExpanded((prev) => !prev)}
+          >
+            {logsExpanded ? "收起日志" : `查看日志 (${logs.length})`}
+          </button>
+        </div>
+        {logsExpanded && <LogPanel logs={logs} />}
+      </div>
+    );
+  };
 
   return (
     <div className="processing-overlay">
@@ -209,18 +237,24 @@ const StepProcessingComponent = ({
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-              {exportActions.map((action) => (
-                <button
-                  key={action.format}
-                  className="btn btn-secondary"
-                  type="button"
-                  onClick={() => onExport(action.format)}
-                  style={exportButtonStyle}
-                >
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>{action.label}</span>
-                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>{action.desc}</span>
-                </button>
-              ))}
+              {exportActions.map((action) => {
+                const isExported = exportedFormats.includes(action.format);
+                return (
+                  <button
+                    key={action.format}
+                    className={`btn btn-secondary ${isExported ? "export-btn--done" : ""}`}
+                    type="button"
+                    onClick={() => onExport(action.format)}
+                    style={exportButtonStyle}
+                  >
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)", display: "flex", alignItems: "center", gap: 4 }}>
+                      {action.label}
+                      {isExported && <span className="export-done-badge">✓ 已导出</span>}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.4 }}>{action.desc}</span>
+                  </button>
+                );
+              })}
               <button
                 key="analyze"
                 className="btn btn-outline-accent"

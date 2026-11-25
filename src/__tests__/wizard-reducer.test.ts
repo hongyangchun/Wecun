@@ -218,6 +218,30 @@ describe("wizardReducer", () => {
     expect(next.phase).toBe("已取消");
   });
 
+  it("handles LOGIN_CANCEL to recover when login window is closed", () => {
+    const next = reduce(
+      { type: "LOGIN_CANCEL" },
+      { ...INITIAL_STATE, isLoggingIn: true },
+    );
+    expect(next.isLoggingIn).toBe(false);
+  });
+
+  it("handles MARK_EXPORTED without duplicates and CLOSE_PROCESSING while preserving form inputs", () => {
+    let state = reduce(
+      { type: "MARK_EXPORTED", format: "html" },
+      { ...INITIAL_STATE, isLoggedIn: true, outputDir: "/tmp/out", profileUrl: "2166767661", processStatus: "downloaded" },
+    );
+    state = reduce({ type: "MARK_EXPORTED", format: "html" }, state);
+    state = reduce({ type: "MARK_EXPORTED", format: "md-obsidian" }, state);
+    expect(state.exportedFormats).toEqual(["html", "md-obsidian"]);
+
+    const closed = reduce({ type: "CLOSE_PROCESSING" }, state);
+    expect(closed.processStatus).toBe("idle");
+    expect(closed.exportedFormats).toEqual([]);
+    expect(closed.outputDir).toBe("/tmp/out");
+    expect(closed.profileUrl).toBe("2166767661");
+  });
+
   it("handles ADD_LOG", () => {
     const next = reduce({ type: "ADD_LOG", message: "新增日志" }, { ...INITIAL_STATE, logs: ["旧日志"] });
     expect(next.logs).toEqual(["旧日志", "新增日志"]);

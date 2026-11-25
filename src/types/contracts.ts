@@ -184,3 +184,19 @@ export interface AiSentimentAnalysis {
 }
 
 export type RedownloadMode = "overwrite" | "incremental";
+
+export interface UserProfile {
+  uid: string;
+  screen_name: string;
+}
+
+export interface SavedSession {
+  cookie: string;
+  uid?: string | null;
+  screen_name?: string | null;
+}
+
+export interface RecentTarget {
+  uid: string;
+  screenName: string;
+}

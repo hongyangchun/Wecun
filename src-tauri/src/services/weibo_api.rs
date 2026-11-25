@@ -1,10 +1,12 @@
 use std::fs;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use reqwest::StatusCode;
-use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tokio::sync::Mutex;
 
 use crate::error::AppError;
@@ -306,52 +308,9 @@ impl<R: Runtime> WeiboApiClient<R> {
         })
     }
 
-    /// Get current logged-in user info.
-    /// Uses the /ajax/config/info endpoint which returns current user's info.
-    pub async fn get_current_user_info(&self) -> Result<UserProfile, AppError> {
-        // Try using config/info endpoint which often contains current user info
-        #[derive(serde::Deserialize)]
-        struct ConfigResponse {
-            data: ConfigData,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct ConfigData {
-            #[serde(default)]
-            uid: Option<String>,
-            #[serde(default)]
-            screen_name: Option<String>,
-            #[serde(default)]
-            user: Option<ConfigUser>,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct ConfigUser {
-            id: Option<i64>,
-            screen_name: Option<String>,
-        }
-
-        match self.get_json::<ConfigResponse>("/ajax/config/info", &[]).await {
-            Ok(resp) => {
-                let uid = resp.data.uid
-                    .or(resp.data.user.as_ref().and_then(|u| u.id.map(|id| id.to_string())))
-                    .unwrap_or_default();
-                let screen_name = resp.data.screen_name
-                    .or(resp.data.user.as_ref().and_then(|u| u.screen_name.clone()))
-                    .unwrap_or_default();
-
-                if !uid.is_empty() && !screen_name.is_empty() {
-                    return Ok(UserProfile { uid, screen_name });
-                }
-            }
-            Err(_) => {
-                // Fall through to profile info endpoint
-            }
-        }
-
-        // Fallback to profile info without uid (works for some accounts)
+    pub async fn get_user_info_with_cookie(&self, uid: &str, cookie: &str) -> Result<UserProfile, AppError> {
         let raw: RawUserInfo = self
-            .get_json("/ajax/profile/info", &[])
+            .get_json_with_cookie("/ajax/profile/info", &[("uid", uid.to_string())], cookie)
             .await?;
         Ok(UserProfile {
             uid: raw.data.user.id.to_string(),
@@ -359,8 +318,50 @@ impl<R: Runtime> WeiboApiClient<R> {
         })
     }
 
+    /// Get current logged-in user info using state cookie.
+    pub async fn get_current_user_info(&self) -> Result<UserProfile, AppError> {
+        let state = self.app.state::<AppState>();
+        let cookie = state.get_cookie();
+        self.get_current_user_info_with_cookie(&cookie).await
+    }
+
     /// Get current logged-in user info with a specific cookie.
+    /// Uses multiple reliable strategies:
+    /// 1. `https://m.weibo.cn/api/config` -> extract `data.uid` -> `/ajax/profile/info?uid={uid}`
+    /// 2. `https://weibo.com/` HTML -> extract embedded `$CONFIG` uid -> `/ajax/profile/info?uid={uid}`
+    /// 3. Legacy `/ajax/config/info` fallback
     pub async fn get_current_user_info_with_cookie(&self, cookie: &str) -> Result<UserProfile, AppError> {
+        if cookie.trim().is_empty() {
+            return Err(AppError::ApiError("请先登录".to_string()));
+        }
+
+        // Strategy 1: m.weibo.cn/api/config reliably returns logged-in uid
+        if let Some(uid) = self.fetch_uid_from_mobile_config(cookie).await {
+            if let Ok(profile) = self.get_user_info_with_cookie(&uid, cookie).await {
+                if !profile.screen_name.trim().is_empty() {
+                    return Ok(profile);
+                }
+            }
+            return Ok(UserProfile {
+                uid: uid.clone(),
+                screen_name: format!("用户{uid}"),
+            });
+        }
+
+        // Strategy 2: parse uid from weibo.com home HTML
+        if let Some(uid) = self.fetch_uid_from_weibo_home(cookie).await {
+            if let Ok(profile) = self.get_user_info_with_cookie(&uid, cookie).await {
+                if !profile.screen_name.trim().is_empty() {
+                    return Ok(profile);
+                }
+            }
+            return Ok(UserProfile {
+                uid: uid.clone(),
+                screen_name: format!("用户{uid}"),
+            });
+        }
+
+        // Strategy 3: legacy /ajax/config/info endpoint
         #[derive(serde::Deserialize)]
         struct ConfigResponse {
             data: ConfigData,
@@ -382,32 +383,88 @@ impl<R: Runtime> WeiboApiClient<R> {
             screen_name: Option<String>,
         }
 
-        match self.get_json_with_cookie::<ConfigResponse>("/ajax/config/info", &[], cookie).await {
-            Ok(resp) => {
-                let uid = resp.data.uid
-                    .or(resp.data.user.as_ref().and_then(|u| u.id.map(|id| id.to_string())))
-                    .unwrap_or_default();
-                let screen_name = resp.data.screen_name
-                    .or(resp.data.user.as_ref().and_then(|u| u.screen_name.clone()))
-                    .unwrap_or_default();
+        if let Ok(resp) = self.get_json_with_cookie::<ConfigResponse>("/ajax/config/info", &[], cookie).await {
+            let uid = resp
+                .data
+                .uid
+                .or_else(|| resp.data.user.as_ref().and_then(|u| u.id.map(|id| id.to_string())))
+                .unwrap_or_default();
+            let screen_name = resp
+                .data
+                .screen_name
+                .or_else(|| resp.data.user.as_ref().and_then(|u| u.screen_name.clone()))
+                .unwrap_or_default();
 
-                if !uid.is_empty() && !screen_name.is_empty() {
-                    return Ok(UserProfile { uid, screen_name });
-                }
+            if !uid.is_empty() && !screen_name.is_empty() {
+                return Ok(UserProfile { uid, screen_name });
             }
-            Err(_) => {
-                // Fall through to profile info endpoint
+            if !uid.is_empty() {
+                if let Ok(profile) = self.get_user_info_with_cookie(&uid, cookie).await {
+                    return Ok(profile);
+                }
             }
         }
 
-        // Fallback to profile info without uid
-        let raw: RawUserInfo = self
-            .get_json_with_cookie("/ajax/profile/info", &[], cookie)
-            .await?;
-        Ok(UserProfile {
-            uid: raw.data.user.id.to_string(),
-            screen_name: raw.data.user.screen_name,
-        })
+        Err(AppError::ApiError("无法获取当前登录用户信息".to_string()))
+    }
+
+    async fn fetch_uid_from_mobile_config(&self, cookie: &str) -> Option<String> {
+        #[derive(serde::Deserialize)]
+        struct MobileConfigResp {
+            data: Option<MobileConfigData>,
+        }
+        #[derive(serde::Deserialize)]
+        struct MobileConfigData {
+            #[serde(default)]
+            login: Option<bool>,
+            #[serde(default)]
+            uid: Option<serde_json::Value>,
+        }
+
+        let state = self.app.state::<AppState>();
+        let client = state.get_client();
+        let resp = client
+            .get("https://m.weibo.cn/api/config")
+            .header("Cookie", cookie)
+            .header("Referer", "https://m.weibo.cn/")
+            .header("MWeibo-Pwa", "1")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .send()
+            .await
+            .ok()?;
+
+        if !resp.status().is_success() {
+            return None;
+        }
+        let body = resp.text().await.ok()?;
+        let parsed: MobileConfigResp = serde_json::from_str(&body).ok()?;
+        let data = parsed.data?;
+        if data.login == Some(false) {
+            return None;
+        }
+        match data.uid? {
+            serde_json::Value::String(s) if !s.trim().is_empty() && s.chars().all(|c| c.is_ascii_digit()) => Some(s),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+
+    async fn fetch_uid_from_weibo_home(&self, cookie: &str) -> Option<String> {
+        let state = self.app.state::<AppState>();
+        let client = state.get_client();
+        let resp = client
+            .get("https://weibo.com/")
+            .header("Cookie", cookie)
+            .header("Referer", "https://weibo.com/")
+            .send()
+            .await
+            .ok()?;
+
+        if !resp.status().is_success() {
+            return None;
+        }
+        let html = resp.text().await.ok()?;
+        extract_uid_from_weibo_html(&html)
     }
 
     pub async fn get_history_map(&self, uid: &str) -> Result<RawHistoryMap, AppError> {
@@ -701,23 +758,62 @@ fn cookie_file_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
         .join(COOKIE_FILE_NAME)
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct CookieData {
-    cookie: String,
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+pub struct SavedSession {
+    pub cookie: String,
+    #[serde(default)]
+    pub uid: Option<String>,
+    #[serde(default)]
+    pub screen_name: Option<String>,
 }
 
-pub fn load_saved_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+pub fn load_saved_session<R: Runtime>(app: &AppHandle<R>) -> Option<SavedSession> {
     let path = cookie_file_path(app);
     if !path.exists() {
         return None;
     }
 
     let content = fs::read_to_string(path).ok()?;
-    let data: CookieData = serde_json::from_str(&content).ok()?;
-    if data.cookie.is_empty() {
+    let data: SavedSession = serde_json::from_str(&content).ok()?;
+    if data.cookie.trim().is_empty() {
         return None;
     }
-    Some(data.cookie)
+    Some(data)
+}
+
+pub fn load_saved_cookie<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    load_saved_session(app).map(|s| s.cookie)
+}
+
+pub fn extract_uid_from_weibo_html(html: &str) -> Option<String> {
+    let patterns = [
+        "$CONFIG['uid']='",
+        "$CONFIG[\"uid\"]=\"",
+        "\"uid\":\"",
+        "\"uid\": \"",
+        "\"idstr\":\"",
+    ];
+    for pattern in patterns {
+        if let Some(pos) = html.find(pattern) {
+            let rest = &html[pos + pattern.len()..];
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.len() >= 5 && digits.len() <= 20 {
+                return Some(digits);
+            }
+        }
+    }
+    None
+}
+
+pub fn is_login_redirect_success(url_str: &str) -> bool {
+    let lower = url_str.to_ascii_lowercase();
+    let is_weibo_home = lower.starts_with("https://weibo.com")
+        || lower.starts_with("https://www.weibo.com")
+        || lower.starts_with("https://m.weibo.cn");
+    is_weibo_home
+        && !lower.contains("passport")
+        && !lower.contains("signin")
+        && !lower.contains("/login")
 }
 
 pub fn apply_saved_cookie_to_state(state: &AppState, cookie: Option<String>) -> Option<String> {
@@ -773,15 +869,12 @@ pub fn is_auth_invalid_response(status: reqwest::StatusCode, body: &str) -> bool
     false
 }
 
-pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
+fn write_saved_session<R: Runtime>(app: &AppHandle<R>, session: &SavedSession) {
     let path = cookie_file_path(app);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let data = CookieData {
-        cookie: cookie.to_string(),
-    };
-    if let Ok(content) = serde_json::to_string_pretty(&data) {
+    if let Ok(content) = serde_json::to_string_pretty(session) {
         let tmp_path = path.with_extension("json.tmp");
         if fs::write(&tmp_path, &content).is_ok() {
             #[cfg(unix)]
@@ -795,6 +888,25 @@ pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
             }
         }
     }
+}
+
+pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
+    let existing = load_saved_session(app).filter(|s| s.cookie == cookie);
+    let session = SavedSession {
+        cookie: cookie.to_string(),
+        uid: existing.as_ref().and_then(|s| s.uid.clone()),
+        screen_name: existing.and_then(|s| s.screen_name),
+    };
+    write_saved_session(app, &session);
+}
+
+pub fn save_session_user<R: Runtime>(app: &AppHandle<R>, uid: &str, screen_name: &str) {
+    let Some(mut session) = load_saved_session(app) else {
+        return;
+    };
+    session.uid = Some(uid.to_string());
+    session.screen_name = Some(screen_name.to_string());
+    write_saved_session(app, &session);
 }
 
 pub fn clear_saved_cookie<R: Runtime>(app: &AppHandle<R>) {
@@ -821,6 +933,28 @@ mod tests {
     fn preview_str_handles_multibyte_utf8_safely() {
         let chinese = "中文错误响应内容".repeat(50);
         assert_eq!(preview_str(&chinese, 300).chars().count(), 300);
+    }
+
+    #[test]
+    fn extract_uid_from_weibo_html_supports_common_formats() {
+        assert_eq!(
+            super::extract_uid_from_weibo_html(r#"$CONFIG['uid']='2166767661';"#).as_deref(),
+            Some("2166767661")
+        );
+        assert_eq!(
+            super::extract_uid_from_weibo_html(r#"{"uid":"1738498871","ok":1}"#).as_deref(),
+            Some("1738498871")
+        );
+        assert_eq!(super::extract_uid_from_weibo_html("<html>no uid</html>"), None);
+    }
+
+    #[test]
+    fn is_login_redirect_success_matches_desktop_and_mobile_weibo() {
+        assert!(super::is_login_redirect_success("https://weibo.com/u/123456"));
+        assert!(super::is_login_redirect_success("https://www.weibo.com/"));
+        assert!(super::is_login_redirect_success("https://m.weibo.cn/"));
+        assert!(!super::is_login_redirect_success("https://passport.weibo.com/sso/signin?entry=miniblog"));
+        assert!(!super::is_login_redirect_success("https://m.weibo.cn/login"));
     }
 
     #[test]
@@ -906,12 +1040,29 @@ const WEIBO_QR_ONLY_SCRIPT: &str = r#"
     );
   }
 
+  function injectOfficialAppTip() {
+    if (document.getElementById('__wecun_official_app_tip')) return;
+    const all = document.querySelectorAll('div');
+    for (const el of all) {
+      if (el.children.length === 0 && (el.textContent || '').includes('打开微博手机APP')) {
+        const tip = document.createElement('div');
+        tip.id = '__wecun_official_app_tip';
+        tip.textContent = '请使用微博官方版 App 扫码（暂不支持轻享版）';
+        tip.style.cssText =
+          'margin-top:8px;font-size:12px;color:#b45309;background:#fef3c7;border-radius:6px;padding:4px 10px;display:inline-block;';
+        el.insertAdjacentElement('afterend', tip);
+        break;
+      }
+    }
+  }
+
   function tryOpenQr() {
     ensureStyle();
     hideBackButtons();
 
     if (isQrVisible()) {
       qrOpened = true;
+      injectOfficialAppTip();
       reveal();
       return true;
     }
@@ -966,12 +1117,16 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
     if let Some(existing_win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
         let _ = existing_win.close();
         // Give it a moment to close properly
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(120)).await;
     }
 
     let app_clone = app.clone();
+    let login_completed = Arc::new(AtomicBool::new(false));
+    let login_completed_nav = Arc::clone(&login_completed);
+    let login_completed_close = Arc::clone(&login_completed);
+    let app_for_close = app.clone();
 
-    let _ = WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         &app,
         LOGIN_WINDOW_LABEL,
         WebviewUrl::External("https://passport.weibo.com/sso/signin?entry=miniblog".parse().unwrap()),
@@ -983,11 +1138,8 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
     .initialization_script(WEIBO_QR_ONLY_SCRIPT)
     .on_navigation(move |url: &Url| {
         let url_str = url.as_str();
-        // When redirected to weibo.com (after successful QR scan), hide window immediately
-        if url_str.starts_with("https://weibo.com")
-            && !url_str.contains("passport")
-            && !url_str.contains("signin")
-        {
+        // When redirected to weibo.com / www.weibo.com / m.weibo.cn after QR scan
+        if is_login_redirect_success(url_str) && !login_completed_nav.swap(true, Ordering::SeqCst) {
             let app = app_clone.clone();
 
             // Hide window immediately to prevent visible redirect
@@ -996,7 +1148,7 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
             }
 
             tauri::async_runtime::spawn(async move {
-                // Longer delay to ensure all cookies are properly set
+                // Wait briefly to ensure all cookies are properly written by WebView
                 tokio::time::sleep(Duration::from_millis(800)).await;
 
                 if let Some(win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
@@ -1004,7 +1156,6 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
                         let cookie_string: Vec<String> = cookies
                             .iter()
                             .filter(|c| {
-                                // Only include cookies for weibo.com domain
                                 let domain = c.domain().unwrap_or("");
                                 domain.contains("weibo") || domain.contains(".sina.cn")
                             })
@@ -1036,6 +1187,12 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
     })
     .build()
     .map_err(|e| e.to_string())?;
+
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Destroyed) && !login_completed_close.load(Ordering::SeqCst) {
+            let _ = app_for_close.emit("login-window-closed", "");
+        }
+    });
 
     Ok(())
 }
