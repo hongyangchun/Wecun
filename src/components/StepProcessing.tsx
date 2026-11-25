@@ -53,6 +53,8 @@ interface StepProcessingProps {
   /** Set when a stopped download saved progress and can be continued. */
   resumeHint?: string | null;
   onResume?: () => void;
+  /** Opens the folder with the log file. Offered where the user is most likely to need it. */
+  onOpenLogDir?: () => void;
   logs: string[];
   onStop: () => void;
   onReset: () => void;
@@ -77,6 +79,7 @@ const StepProcessingComponent = ({
   outcome = null,
   resumeHint = null,
   onResume,
+  onOpenLogDir,
   logs,
   onStop,
   onReset,
@@ -405,6 +408,12 @@ const StepProcessingComponent = ({
                   </button>
                 )}
               </div>
+
+              {onOpenLogDir && (
+                <button className="btn btn-ghost" style={{ width: "100%", marginTop: 8 }} onClick={onOpenLogDir} type="button">
+                  打开日志文件夹
+                </button>
+              )}
             </div>
           );
         })()}

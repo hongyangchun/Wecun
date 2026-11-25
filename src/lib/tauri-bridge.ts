@@ -52,6 +52,11 @@ export async function exportPosts(request: ExportRequest): Promise<string> {
   return await invoke<string>("export_posts", { request });
 }
 
+/** Folder that holds the app's log file. */
+export async function getLogDir(): Promise<string> {
+  return await invoke<string>("get_log_dir");
+}
+
 export async function cancelDownload(): Promise<void> {
   await invoke("cancel_download");
 }

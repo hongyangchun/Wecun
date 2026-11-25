@@ -1,13 +1,14 @@
 {
   "name": "wecun",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest",
     "preview": "vite preview",
+    "check:versions": "node scripts/release.mjs check-versions",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -245,3 +245,12 @@ pub fn set_cookie_cmd(cookie: String, app: tauri::AppHandle) {
     let state = app.state::<AppState>();
     state.set_cookie(cookie);
 }
+
+/// The folder that holds the log file, so the UI can offer to open it.
+#[tauri::command]
+pub fn get_log_dir(app: tauri::AppHandle) -> Result<String, String> {
+    app.path()
+        .app_log_dir()
+        .map(|dir| dir.to_string_lossy().to_string())
+        .map_err(|error| error.to_string())
+}

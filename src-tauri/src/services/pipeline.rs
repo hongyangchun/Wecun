@@ -191,6 +191,7 @@ impl DownloadService {
                     walk.checkpoint_on_disk = Some((walk.last_page, walk.posts.len()));
                     walk.dirty = false;
                 }
+                log::error!("download stopped: {error}");
                 // A failing write must not hide the error that ended the walk, and "your progress is
                 // saved" may only be said when a checkpoint really is on disk.
                 if matches!(error, AppError::Cancelled) {
@@ -233,13 +234,18 @@ impl DownloadService {
         }
         state.posts_exported.store(walk.posts.len(), Ordering::Relaxed);
 
-        Ok(DownloadOutcome {
+        let outcome = DownloadOutcome {
             saved: walk.posts.len(),
             long_text_failed: walk.long_text_failed,
             image_failed,
             resumed_from_page: walk.resumed_from_page,
             stopped_early,
-        })
+        };
+        log::info!("download finished: {}", outcome.summary());
+        if let Some(page) = outcome.resumed_from_page {
+            log::info!("this run continued from page {page}");
+        }
+        Ok(outcome)
     }
 
     /// Fetches one page and handles everything on it before the walk may move on.
@@ -314,7 +320,8 @@ impl DownloadService {
         }
         walk.repeated_pages = 0;
 
-        walk.total_fetched += first_time.len();
+        let new_posts = first_time.len();
+        walk.total_fetched += new_posts;
         let fresh: Vec<RawPost> = first_time
             .into_iter()
             .filter(|post| !(request.ignore_deleted && post.user.is_none()))
@@ -325,6 +332,7 @@ impl DownloadService {
         walk.last_page = page as usize;
         walk.dirty = true;
         context.report_page(walk, page, &format!("已获取 {} 条微博", walk.total_fetched));
+        log::debug!("page {page} handled: {new_posts} new posts, {} saved in total", walk.posts.len());
 
         if walk.posts_since_checkpoint >= CHECKPOINT_EVERY_POSTS
             || walk.last_checkpoint_at.elapsed() >= CHECKPOINT_EVERY
@@ -711,6 +719,7 @@ fn record_long_text_failure<S: WeiboSource>(
     mblogid: &str,
     reason: &str,
 ) {
+    log::warn!("long text of {mblogid} could not be fetched: {reason}");
     // Every failure is counted; only the first few are reported one by one.
     if walk.long_text_failed < MAX_LOGGED_LONG_TEXT_FAILURES {
         let reason: String = reason.chars().take(60).collect();
@@ -725,6 +734,7 @@ fn record_long_text_failure<S: WeiboSource>(
 /// For an error screen: says that the walk's progress is on disk, when it is.
 fn report_progress_saved(sink: &dyn ProgressSink, walk: &WalkState) {
     if let Some(message) = saved_progress_message(walk) {
+        log::info!("{message}");
         sink.emit(ProgressPhase::FetchingPostList, walk.posts.len(), 0, &message);
     }
 }
@@ -756,6 +766,7 @@ fn report_cancelled(sink: &dyn ProgressSink, walk: &WalkState) {
         None => ("已取消".to_string(), 0),
     };
     let saved = walk.checkpoint_on_disk.map_or(0, |(_, saved)| saved);
+    log::info!("{message}");
     sink.emit(ProgressPhase::Cancelled, saved, resumable, &message);
 }
 

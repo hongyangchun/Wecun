@@ -128,11 +128,8 @@ impl<R: Runtime> WeiboApiClient<R> {
                 )));
             }
 
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[DEBUG] Auth failure - Status: {}, Path: {}, Body preview: {}",
-                status,
-                path,
+            log::warn!(
+                "Weibo rejected the session: HTTP {status} from {path}, body: {}",
                 preview_str(&text, 200)
             );
 
@@ -280,6 +277,7 @@ impl<R: Runtime> WeiboApiClient<R> {
     }
 
     fn emit_retry_progress(&self, message: &str) {
+        log::warn!("{message}");
         let _ = self.app.emit("download-progress", retry_progress_event(message));
     }
 
@@ -480,8 +478,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         let list = raw.data.list.unwrap_or_default();
         let total = raw.data.total.unwrap_or(0);
 
-        #[cfg(debug_assertions)]
-        eprintln!("[DEBUG] fetch_posts_page: page={}, returned {} posts, total={}", page, list.len(), total);
+        log::debug!("profile page {page}: {} posts, Weibo reports {total} in total", list.len());
 
         Ok((list, total))
     }
@@ -1189,16 +1186,14 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
                         if !cookie_string.is_empty() {
                             let full_cookie = cookie_string.join("; ");
 
-                            #[cfg(debug_assertions)]
-                            eprintln!("[DEBUG] Captured {} cookies", cookie_string.len());
+                            log::info!("login window captured {} cookies", cookie_string.len());
 
                             let state = app.state::<AppState>();
                             state.set_cookie(full_cookie.clone());
                             save_cookie(&app, &full_cookie);
                             let _ = app.emit("cookie-received", full_cookie);
                         } else {
-                            #[cfg(debug_assertions)]
-                            eprintln!("[DEBUG] No cookies captured after login!");
+                            log::warn!("sign-in looked successful, but the login window handed over no cookies");
                         }
                     }
 
