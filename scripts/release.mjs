@@ -15,17 +15,21 @@ import { parseArgs } from "node:util";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
-/** Every file a release must carry. A bundle file matches the first pattern it ends with. */
+/**
+ * Every file a release must carry. A bundle file matches the first pattern it ends with.
+ *
+ * With `createUpdaterArtifacts: true` the bundler signs each installer instead of wrapping it, so on
+ * Windows and Linux the installer itself is what the in-app updater downloads; only macOS gets a
+ * separate `.app.tar.gz`. These names were read off a real CI build.
+ */
 const RELEASE_FILES = [
   { id: "mac-dmg", match: /\.dmg$/, label: "macOS disk image", stable: "Wecun-universal.dmg" },
   { id: "mac-updater", match: /\.app\.tar\.gz$/, label: "macOS updater bundle" },
   { id: "mac-updater-sig", match: /\.app\.tar\.gz\.sig$/, label: "macOS updater signature" },
   { id: "windows-installer", match: /-setup\.exe$/, label: "Windows installer", stable: "Wecun-x64-setup.exe" },
-  { id: "windows-updater", match: /\.nsis\.zip$/, label: "Windows updater bundle" },
-  { id: "windows-updater-sig", match: /\.nsis\.zip\.sig$/, label: "Windows updater signature" },
+  { id: "windows-installer-sig", match: /-setup\.exe\.sig$/, label: "Windows installer signature" },
   { id: "linux-appimage", match: /\.AppImage$/, label: "Linux AppImage", stable: "Wecun-latest.AppImage" },
-  { id: "linux-appimage-updater", match: /\.AppImage\.tar\.gz$/, label: "Linux AppImage updater bundle" },
-  { id: "linux-appimage-updater-sig", match: /\.AppImage\.tar\.gz\.sig$/, label: "Linux AppImage updater signature" },
+  { id: "linux-appimage-sig", match: /\.AppImage\.sig$/, label: "Linux AppImage signature" },
   { id: "linux-deb", match: /\.deb$/, label: "Linux package", stable: "Wecun-latest.deb" },
   { id: "linux-deb-sig", match: /\.deb\.sig$/, label: "Linux package updater signature" },
 ];
@@ -35,8 +39,8 @@ const PLATFORMS = {
   "darwin-universal": ["mac-updater", "mac-updater-sig"],
   "darwin-aarch64": ["mac-updater", "mac-updater-sig"],
   "darwin-x86_64": ["mac-updater", "mac-updater-sig"],
-  "windows-x86_64-nsis": ["windows-updater", "windows-updater-sig"],
-  "linux-x86_64-appimage": ["linux-appimage-updater", "linux-appimage-updater-sig"],
+  "windows-x86_64-nsis": ["windows-installer", "windows-installer-sig"],
+  "linux-x86_64-appimage": ["linux-appimage", "linux-appimage-sig"],
   "linux-x86_64-deb": ["linux-deb", "linux-deb-sig"],
 };
 

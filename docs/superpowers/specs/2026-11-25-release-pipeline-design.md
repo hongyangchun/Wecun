@@ -13,7 +13,8 @@
 
 更新器按 `{系统}-{架构}-{安装包类型}` 在 `latest.json` 里找自己。原来清单里只有 macOS 的三个键，Windows 和 Linux 找不到，直接报错。
 
-- 构建时把更新器要用的文件一起上传：Windows 的 `-setup.nsis.zip` 与签名，Linux 的 `.AppImage.tar.gz`、`.deb` 与各自的签名。
+- 构建时把更新器要用的文件一起上传：Windows 的安装包 `-setup.exe` 与它的 `.sig`，Linux 的 `.AppImage`、`.deb` 与各自的 `.sig`。
+- 当前版本的打包器直接给安装包签名，不另外打包，所以没有 `.nsis.zip` 和 `.AppImage.tar.gz`。这些文件名取自一次真实的 CI 构建。
 - 清单新增 `windows-x86_64-nsis`、`linux-x86_64-appimage`、`linux-x86_64-deb`。
 - Linux 装 deb 需要管理员权限，更新器依次尝试 pkexec、图形化密码框、终端 sudo，应用侧不需要额外处理。
 
