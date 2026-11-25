@@ -162,6 +162,13 @@ pub fn get_saved_cookie(app: tauri::AppHandle) -> String {
         .unwrap_or_else(String::new)
 }
 
+/// Describes the finished backup in `output_dir`, when there is one, so the UI can offer to update
+/// or export it instead of downloading everything again.
+#[tauri::command]
+pub fn inspect_backup(output_dir: String) -> Option<crate::models::BackupMeta> {
+    crate::services::cache::inspect_backup(&output_dir)
+}
+
 /// Returns the saved session (cookie + cached uid/screen_name) if exists.
 #[tauri::command]
 pub fn get_saved_session(app: tauri::AppHandle) -> Option<SavedSession> {

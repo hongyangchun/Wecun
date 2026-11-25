@@ -18,7 +18,7 @@ pub enum ExportFormat {
     MarkdownObsidian,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceType {
     Profile,
@@ -45,6 +45,9 @@ pub struct DownloadRequest {
     pub min_text_length: usize,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    /// Download from the first page even when the output directory already holds a backup.
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 fn default_min_text_length() -> usize {

@@ -10,7 +10,7 @@ pub mod utils;
 use commands::{
     analyze_profile, cancel_download, clear_saved_cookie_cmd, export_posts, export_profile, get_current_user_info,
     get_log_dir, get_saved_cookie, get_saved_session, has_saved_cookie, load_saved_cookie_cmd, lookup_user_info,
-    open_login_window, set_cookie_cmd, start_download,
+    inspect_backup, open_login_window, set_cookie_cmd, start_download,
 };
 use state::AppState;
 
@@ -78,6 +78,7 @@ pub fn run() {
             clear_saved_cookie_cmd,
             set_cookie_cmd,
             get_log_dir,
+            inspect_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

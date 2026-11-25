@@ -72,6 +72,7 @@ async fn live_session_exports_real_long_post_content() {
         ignore_deleted: false,
         min_text_length: 0,
         limit: 1000,
+        fresh: false,
     };
 
     DownloadService::new()
