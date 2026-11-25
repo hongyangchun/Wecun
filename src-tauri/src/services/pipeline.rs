@@ -705,7 +705,9 @@ async fn fetch_long_text<S: WeiboSource>(
             record_long_text_failure(context, walk, mblogid, "微博没有返回全文");
             Ok(None)
         }
-        Err(error @ (AppError::Cancelled | AppError::InvalidCookie | AppError::NotLoggedIn)) => Err(error),
+        Err(error @ (AppError::Cancelled | AppError::InvalidCookie | AppError::NotLoggedIn | AppError::Blocked(_))) => {
+            Err(error)
+        }
         Err(error) => {
             record_long_text_failure(context, walk, mblogid, &error.to_string());
             Ok(None)
@@ -812,6 +814,7 @@ mod tests {
         Transient,
         SessionExpired,
         LoggedOut,
+        Blocked,
         Cancelled,
     }
 
@@ -820,6 +823,7 @@ mod tests {
             Failure::Transient => AppError::ApiError("模拟的临时错误".to_string()),
             Failure::SessionExpired => AppError::InvalidCookie,
             Failure::LoggedOut => AppError::NotLoggedIn,
+            Failure::Blocked => AppError::Blocked("模拟的风控拒绝".to_string()),
             Failure::Cancelled => AppError::Cancelled,
         }
     }
@@ -1517,6 +1521,47 @@ mod tests {
 
         assert_eq!(outcome.saved, 0);
         assert_eq!(outcome.long_text_failed, 0, "nothing of this post was kept, so nothing was kept truncated");
+    }
+
+    #[tokio::test]
+    async fn a_refused_request_stops_the_walk_and_keeps_what_was_saved() {
+        let dir = temp_output_dir("blocked");
+        let source = FakeSource {
+            fail_page_with: Some((2, Failure::Blocked)),
+            ..FakeSource::new(timeline(3, 3))
+        };
+
+        let (result, _, events) = run(&request(&dir), &source).await;
+
+        assert!(matches!(result, Err(AppError::Blocked(_))));
+        let checkpoint = cache_in(&dir).checkpoint.expect("the finished page is kept for a later run");
+        assert_eq!(checkpoint.last_page, 1);
+        assert_eq!(saved_ids(&dir), ["p0", "p1", "p2"]);
+        assert!(
+            events.iter().any(|event| event.message.contains("第 2 页接着下载")),
+            "the error screen learns that starting again continues the download"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_refused_long_text_request_stops_the_walk_instead_of_leaving_the_post_truncated() {
+        let dir = temp_output_dir("blocked-long-text");
+        let mut pages = timeline(1, 1);
+        pages[0][0] = long_post(0);
+        let source = FakeSource {
+            long_text: HashMap::from([("p0".to_string(), Err(Failure::Blocked))]),
+            ..FakeSource::new(pages)
+        };
+
+        let (result, _, _) = run(&request(&dir), &source).await;
+
+        assert!(matches!(result, Err(AppError::Blocked(_))));
+        assert!(
+            cache::load_cache_bundle_sync(&dir.to_string_lossy()).is_err(),
+            "nothing was saved, so no post is left truncated"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

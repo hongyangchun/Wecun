@@ -6,6 +6,9 @@ use tokio::sync::Notify;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+/// At least this long between two requests to Weibo, whichever command made them.
+pub const REQUEST_INTERVAL: Duration = Duration::from_millis(1000);
+
 pub struct AppState {
     pub cancel_flag: AtomicBool,
     pub current_page: AtomicUsize,
@@ -19,6 +22,10 @@ pub struct AppState {
     http_client: Mutex<reqwest::Client>,
     cookie: Mutex<String>,
     last_cookie_set: Mutex<Option<Instant>>,
+    /// When the next request to Weibo may go out. Shared by every command, so that a lookup typed
+    /// while a download is running cannot cut into the download's pacing.
+    next_request_at: Mutex<Option<Instant>>,
+    request_interval: Duration,
 }
 
 impl Default for AppState {
@@ -35,6 +42,8 @@ impl Default for AppState {
             http_client: Mutex::new(Self::create_client()),
             cookie: Mutex::new(String::new()),
             last_cookie_set: Mutex::new(None),
+            next_request_at: Mutex::new(None),
+            request_interval: REQUEST_INTERVAL,
         }
     }
 }
@@ -81,6 +90,38 @@ impl AppState {
         tokio::select! {
             _ = tokio::time::sleep(duration) => self.is_cancelled(),
             _ = &mut notified => true,
+        }
+    }
+
+    /// An `AppState` whose request interval is short enough to put in a test.
+    pub fn with_request_interval(request_interval: Duration) -> Self {
+        Self {
+            request_interval,
+            ..Self::default()
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
+    }
+
+    /// Waits until one request interval has passed since the previous request to Weibo, whichever
+    /// command made it, and reserves the slot so that concurrent callers are spaced out as well.
+    /// Returns `true` when the running download was stopped while waiting.
+    pub async fn wait_for_request_slot(&self) -> bool {
+        let wait = {
+            let mut next = self.next_request_at.lock().unwrap_or_else(|e| e.into_inner());
+            let wait = next.and_then(|at| remaining_throttle_delay(at.elapsed(), self.request_interval));
+            *next = Some(Instant::now() + wait.unwrap_or_default());
+            wait
+        };
+
+        match wait {
+            Some(duration) if !duration.is_zero() => {
+                tokio::time::sleep(duration).await;
+                self.is_cancelled() && self.is_running()
+            }
+            _ => false,
         }
     }
 
@@ -144,9 +185,29 @@ impl Drop for RunGuard<'_> {
     }
 }
 
+/// How much longer a request must wait, given how long ago the previous slot was.
+pub fn remaining_throttle_delay(elapsed: Duration, min_interval: Duration) -> Option<Duration> {
+    min_interval.checked_sub(elapsed).filter(|d| !d.is_zero())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::AppState;
+
+    #[tokio::test]
+    async fn every_weibo_request_waits_its_turn_whichever_command_made_the_previous_one() {
+        let state = AppState::with_request_interval(Duration::from_millis(80));
+
+        let first = Instant::now();
+        state.wait_for_request_slot().await;
+        assert!(first.elapsed() < Duration::from_millis(50), "the first request goes straight through");
+
+        let second = Instant::now();
+        state.wait_for_request_slot().await;
+        assert!(second.elapsed() >= Duration::from_millis(50), "the next request waits for the interval");
+    }
 
     #[test]
     fn only_one_download_can_run_at_a_time() {
