@@ -11,6 +11,9 @@ const outcome = (overrides: Partial<DownloadOutcome>): DownloadOutcome => ({
   imageFailed: 0,
   resumedFromPage: null,
   stoppedEarly: null,
+  added: null,
+  unchanged: 0,
+  startedOver: null,
   ...overrides,
 });
 
@@ -91,5 +94,29 @@ describe("StepProcessing result screen", () => {
 
     fireEvent.click(screen.getByText("打开日志文件夹"));
     expect(onOpenLogDir).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an update as new posts on top of what was already there", () => {
+    renderProcessing({ outcome: outcome({ saved: 8, added: 2, unchanged: 6 }) });
+
+    expect(screen.getByText("更新完成！")).toBeTruthy();
+    expect(screen.getByText(/新增 2 条，原有 6 条未改动/)).toBeTruthy();
+    expect(screen.getByText(/共 8 条/)).toBeTruthy();
+    expect(screen.queryByText("下载完成！")).toBeNull();
+  });
+
+  it("says why it started over instead of updating", () => {
+    renderProcessing({ outcome: outcome({ saved: 0, startedOver: "筛选条件变了，已重新完整下载" }) });
+
+    expect(screen.getByText("下载完成！")).toBeTruthy();
+    expect(screen.getByText(/筛选条件变了，已重新完整下载/)).toBeTruthy();
+  });
+
+  it("shows an existing backup as such, not as a download that just happened", () => {
+    renderProcessing({ viewingExisting: true, outcome: outcome({ saved: 12 }) });
+
+    expect(screen.getByText("已有备份")).toBeTruthy();
+    expect(screen.queryByText("下载完成！")).toBeNull();
+    expect(screen.queryByText("更新完成！")).toBeNull();
   });
 });

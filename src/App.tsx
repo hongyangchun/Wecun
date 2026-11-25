@@ -10,6 +10,7 @@ import {
   cancelDownload,
   exportPosts,
   getLogDir,
+  inspectBackup,
   openOutputDir,
   clearSavedCookie,
   checkForAppUpdate,
@@ -339,6 +340,7 @@ function AppShell() {
         minTextLength: state.minTextLength,
         limit: state.limit,
         sourceType: state.sourceType,
+        fresh: state.freshDownload,
       }));
 
       // The backend's completion event already logged the outcome summary; the result screen needs
@@ -459,6 +461,44 @@ function AppShell() {
     setProfileAuthorName(null);
     setProfileOutputDir(null);
   }, []);
+
+  // Lets the workspace offer an update or an export when the chosen directory already holds the
+  // current target's backup. Runs again after a download, so the card shows what is there now.
+  const targetUid = state.sourceType === "favorites" ? state.currentUid : extractUidFromUrl(state.profileUrl);
+  useEffect(() => {
+    if (!state.outputDir || !targetUid) {
+      if (state.existingBackup) dispatch({ type: "SET_EXISTING_BACKUP", backup: null });
+      return;
+    }
+
+    let cancelled = false;
+    const outputDir = state.outputDir;
+    const sourceType = state.sourceType;
+    const timer = setTimeout(() => {
+      inspectBackup(outputDir)
+        .then((backup) => {
+          if (cancelled) return;
+          dispatch({
+            type: "SET_EXISTING_BACKUP",
+            backup: backup && backup.uid === targetUid && backup.source_type === sourceType ? backup : null,
+          });
+        })
+        .catch(() => {
+          if (!cancelled) dispatch({ type: "SET_EXISTING_BACKUP", backup: null });
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [state.outputDir, targetUid, state.sourceType, state.processStatus, state.existingBackup, dispatch]);
+
+  const handleExportExisting = useCallback(() => {
+    if (state.existingBackup) {
+      dispatch({ type: "OPEN_EXISTING_BACKUP", postCount: state.existingBackup.post_count });
+    }
+  }, [state.existingBackup, dispatch]);
 
   const dismissUpdateToast = useCallback(() => {
     setUpdateToast(INITIAL_UPDATE_TOAST);
@@ -765,6 +805,10 @@ function AppShell() {
               outputDir={state.outputDir}
               onDirChange={(dir) => dispatch({ type: "SET_OUTPUT_DIR", dir })}
               onOpenOutputDir={handleOpenOutputDir}
+              existingBackup={state.existingBackup}
+              freshDownload={state.freshDownload}
+              onFreshDownloadChange={(value) => dispatch({ type: "SET_FRESH_DOWNLOAD", value })}
+              onExportExisting={handleExportExisting}
               onStartDownload={handleStartDownload}
               canStart={canStartDownload}
             />
@@ -815,6 +859,7 @@ function AppShell() {
             resumeHint={state.resumeHint ?? null}
             onResume={handleResume}
             onOpenLogDir={handleOpenLogDir}
+            viewingExisting={state.viewingExisting}
           />
         )}
 

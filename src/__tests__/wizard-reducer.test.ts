@@ -354,4 +354,43 @@ describe("wizardReducer", () => {
     const next = wizardReducer(state, { type: "UNKNOWN" } as unknown as WizardAction);
     expect(next).toBe(state);
   });
+
+  it("remembers the finished backup in the chosen directory and drops the fresh flag when it is gone", () => {
+    const backup = {
+      uid: "1",
+      source_type: "profile",
+      post_count: 12,
+      author: "测试",
+      filter: "all",
+      min_text_length: 0,
+      ignore_deleted: false,
+      start_timestamp: null,
+      end_timestamp: null,
+    } as const;
+
+    const withBackup = reduce(
+      { type: "SET_FRESH_DOWNLOAD", value: true },
+      reduce({ type: "SET_EXISTING_BACKUP", backup }),
+    );
+    expect(withBackup.existingBackup).toEqual(backup);
+    expect(withBackup.freshDownload).toBe(true);
+
+    // Re-inspecting the directory must not create a new state for an unchanged backup.
+    expect(reduce({ type: "SET_EXISTING_BACKUP", backup: { ...backup } }, withBackup)).toBe(withBackup);
+
+    const gone = reduce({ type: "SET_EXISTING_BACKUP", backup: null }, withBackup);
+    expect(gone.existingBackup).toBeNull();
+    expect(gone.freshDownload).toBe(false);
+  });
+
+  it("opens the export screen for an existing backup without pretending to have downloaded", () => {
+    const next = reduce({ type: "OPEN_EXISTING_BACKUP", postCount: 12 });
+
+    expect(next.processStatus).toBe("downloaded");
+    expect(next.viewingExisting).toBe(true);
+    expect(next.outcome?.saved).toBe(12);
+    expect(next.outcome?.added).toBeNull();
+    expect(reduce({ type: "CLOSE_PROCESSING" }, next).viewingExisting).toBe(false);
+    expect(reduce({ type: "START_PROCESSING" }, next).viewingExisting).toBe(false);
+  });
 });

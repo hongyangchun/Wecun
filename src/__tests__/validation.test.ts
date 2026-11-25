@@ -98,6 +98,7 @@ describe("validation utilities", () => {
           minTextLength: 20,
           limit: 1000,
           sourceType: "profile",
+          fresh: false,
         }),
       ).toEqual({
         uid: "2166767661",
@@ -113,6 +114,7 @@ describe("validation utilities", () => {
         min_text_length: 20,
         limit: 1000,
         source_type: "profile",
+        fresh: false,
       });
     });
 
@@ -131,6 +133,7 @@ describe("validation utilities", () => {
           minTextLength: 0,
           limit: 1000,
           sourceType: "profile",
+          fresh: false,
         }),
       ).toEqual({
         uid: "2166767661",
@@ -146,6 +149,7 @@ describe("validation utilities", () => {
         min_text_length: 0,
         limit: 1000,
         source_type: "profile",
+        fresh: false,
       });
     });
 
@@ -164,8 +168,30 @@ describe("validation utilities", () => {
           minTextLength: 0,
           limit: 1000,
           sourceType: "favorites",
+          fresh: false,
         }).date_range,
       ).toEqual({ start_timestamp: null, end_timestamp: null });
+    });
+
+    it("passes on the request to start over instead of updating an existing backup", () => {
+      const values = {
+        uid: "2166767661",
+        cookie: "SUB=cookie;",
+        filter: "all" as const,
+        includeImages: false,
+        downloadRange: "all" as const,
+        dateStart: "",
+        dateEnd: "",
+        outputDir: "/tmp/weibo",
+        ignoreDeleted: false,
+        minTextLength: 0,
+        limit: 1000,
+        sourceType: "profile" as const,
+        fresh: true,
+      };
+
+      expect(buildDownloadRequest(values).fresh).toBe(true);
+      expect(buildDownloadRequest({ ...values, fresh: false }).fresh).toBe(false);
     });
   });
 });

@@ -4,6 +4,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import type {
+  BackupMeta,
   DownloadOutcome,
   DownloadRequest,
   ExportRequest,
@@ -55,6 +56,11 @@ export async function exportPosts(request: ExportRequest): Promise<string> {
 /** Folder that holds the app's log file. */
 export async function getLogDir(): Promise<string> {
   return await invoke<string>("get_log_dir");
+}
+
+/** The finished backup in a directory, when there is one. */
+export async function inspectBackup(outputDir: string): Promise<BackupMeta | null> {
+  return await invoke<BackupMeta | null>("inspect_backup", { outputDir });
 }
 
 export async function cancelDownload(): Promise<void> {

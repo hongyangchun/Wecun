@@ -16,11 +16,26 @@ export interface DownloadRequest {
   min_text_length: number;
   limit: number;
   source_type: "profile" | "favorites";
+  /** Download from the first page even when the directory already holds a backup. */
+  fresh: boolean;
 }
 
 export interface ExportRequest {
   output_dir: string;
   export_format: ExportFormat;
+}
+
+/** A finished backup in some directory: what it holds and the rules it was made with. */
+export interface BackupMeta {
+  uid: string;
+  source_type: "profile" | "favorites";
+  post_count: number;
+  author: string;
+  filter: PostFilter;
+  min_text_length: number;
+  ignore_deleted: boolean;
+  start_timestamp: number | null;
+  end_timestamp: number | null;
 }
 
 /** What a download run actually produced. Any non-zero field means the backup is missing something. */
@@ -30,6 +45,12 @@ export interface DownloadOutcome {
   imageFailed: number;
   resumedFromPage: number | null;
   stoppedEarly: string | null;
+  /** Posts added to an earlier backup, when this run was an update. Null for a full download. */
+  added?: number | null;
+  /** Posts of the earlier backup that an update kept as they were. */
+  unchanged?: number;
+  /** Set when the directory held a backup that could not be updated: why the run started over. */
+  startedOver?: string | null;
 }
 
 export type ProgressPhase =
