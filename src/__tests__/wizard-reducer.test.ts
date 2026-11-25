@@ -394,13 +394,16 @@ describe("wizardReducer", () => {
     expect(reduce({ type: "START_PROCESSING" }, next).viewingExisting).toBe(false);
   });
 
-  it("drops a request for a full download once that download is over", () => {
+  it("drops a request for a full download when that download starts, and at no other time", () => {
     const asked = reduce({ type: "SET_FRESH_DOWNLOAD", value: true });
     expect(asked.freshDownload).toBe(true);
 
+    expect(reduce({ type: "START_PROCESSING" }, asked).freshDownload).toBe(false);
+    // Finishing a profile analysis also ends in DOWNLOAD_COMPLETE. That is not a download, and must
+    // not quietly drop a tick the user set.
     expect(reduce(
       { type: "DOWNLOAD_COMPLETE", outcome: { saved: 3, longTextFailed: 0, imageFailed: 0, resumedFromPage: null, stoppedEarly: null } },
       asked,
-    ).freshDownload).toBe(false);
+    ).freshDownload).toBe(true);
   });
 });
