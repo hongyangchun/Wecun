@@ -1,4 +1,25 @@
-import type { PostFilter, DownloadRange, DownloadOutcome, ExportFormat, ProgressPhase } from "../types/contracts";
+import type {
+  BackupMeta,
+  PostFilter,
+  DownloadRange,
+  DownloadOutcome,
+  ExportFormat,
+  ProgressPhase,
+} from "../types/contracts";
+
+function sameBackup(left: BackupMeta, right: BackupMeta): boolean {
+  return (
+    left.uid === right.uid
+    && left.source_type === right.source_type
+    && left.post_count === right.post_count
+    && left.author === right.author
+    && left.filter === right.filter
+    && left.min_text_length === right.min_text_length
+    && left.ignore_deleted === right.ignore_deleted
+    && left.start_timestamp === right.start_timestamp
+    && left.end_timestamp === right.end_timestamp
+  );
+}
 
 // Get today's date in YYYY-MM-DD format for the default end date
 function getTodayDate(): string {
@@ -40,6 +61,12 @@ export interface WizardState {
   errorMessage?: string;
   logs: string[];
   sourceType: "profile" | "favorites";
+  /** The finished backup in the chosen directory, when it is the current target's. */
+  existingBackup: BackupMeta | null;
+  /** The user asked for a download from the first page instead of an update of `existingBackup`. */
+  freshDownload: boolean;
+  /** The export screen is showing `existingBackup`, not a download that has just happened. */
+  viewingExisting: boolean;
   /** What the last finished download actually produced. */
   outcome?: DownloadOutcome | null;
   /** The backend's "your progress is saved" message for a stopped download that can be continued. */
@@ -75,6 +102,9 @@ export const INITIAL_STATE: WizardState = {
   errorMessage: undefined,
   logs: [],
   sourceType: "profile",
+  existingBackup: null,
+  freshDownload: false,
+  viewingExisting: false,
 };
 
 export type WizardAction =
@@ -105,6 +135,9 @@ export type WizardAction =
   | { type: "START_PROCESSING" }
   | { type: "UPDATE_PROGRESS"; phase: ProgressPhase; current: number; total: number; message: string }
   | { type: "DOWNLOAD_COMPLETE"; outcome?: DownloadOutcome }
+  | { type: "SET_EXISTING_BACKUP"; backup: BackupMeta | null }
+  | { type: "SET_FRESH_DOWNLOAD"; value: boolean }
+  | { type: "OPEN_EXISTING_BACKUP"; postCount: number }
   | { type: "EXPORT_START" }
   | { type: "PROCESS_COMPLETE" }
   | { type: "PROCESS_ERROR"; message: string }
@@ -255,6 +288,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         errorMessage: undefined,
         outcome: null,
         resumeHint: null,
+        viewingExisting: false,
         exportedFormats: [],
         logs: ["开始下载..."],
       };
@@ -329,6 +363,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         phase: "下载完成",
         // Returning to the export grid, or finishing a profile analysis, must not hide what went wrong.
         outcome: action.outcome ?? state.outcome ?? null,
+        viewingExisting: false,
       };
 
     case "PROCESS_COMPLETE":
@@ -337,6 +372,42 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         processStatus: "done",
         progress: 100,
         phase: "导出完成",
+      };
+
+    case "SET_EXISTING_BACKUP": {
+      // The directory is inspected again after every few keystrokes. An unchanged backup must not
+      // make a new state, or the inspection would never settle.
+      const current = state.existingBackup;
+      const next = action.backup;
+      if (current && next && sameBackup(current, next)) {
+        return state;
+      }
+      return { ...state, existingBackup: next, freshDownload: next ? state.freshDownload : false };
+    }
+
+    case "SET_FRESH_DOWNLOAD":
+      return { ...state, freshDownload: action.value };
+
+    case "OPEN_EXISTING_BACKUP":
+      return {
+        ...state,
+        processStatus: "downloaded",
+        progress: 100,
+        phase: "已有备份",
+        outcome: {
+          saved: action.postCount,
+          longTextFailed: 0,
+          imageFailed: 0,
+          resumedFromPage: null,
+          stoppedEarly: null,
+          added: null,
+          unchanged: 0,
+          startedOver: null,
+        },
+        viewingExisting: true,
+        errorMessage: undefined,
+        exportedFormats: [],
+        logs: [],
       };
 
     case "PROCESS_ERROR":
@@ -364,6 +435,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         errorMessage: undefined,
         outcome: null,
         resumeHint: null,
+        viewingExisting: false,
         exportedFormats: [],
         logs: [],
       };

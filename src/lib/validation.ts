@@ -71,6 +71,8 @@ export interface FormValues {
   minTextLength: number;
   limit: number;
   sourceType: "profile" | "favorites";
+  /** Start from the first page even when the directory already holds a backup. */
+  fresh: boolean;
 }
 
 export function buildDownloadRequest(values: FormValues): DownloadRequest {
@@ -90,5 +92,6 @@ export function buildDownloadRequest(values: FormValues): DownloadRequest {
     min_text_length: values.minTextLength,
     limit: values.limit,
     source_type: values.sourceType,
+    fresh: values.fresh,
   };
 }

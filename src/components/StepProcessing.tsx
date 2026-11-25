@@ -55,6 +55,8 @@ interface StepProcessingProps {
   onResume?: () => void;
   /** Opens the folder with the log file. Offered where the user is most likely to need it. */
   onOpenLogDir?: () => void;
+  /** The screen shows the backup that was already in the directory, not a download that just happened. */
+  viewingExisting?: boolean;
   logs: string[];
   onStop: () => void;
   onReset: () => void;
@@ -80,6 +82,7 @@ const StepProcessingComponent = ({
   resumeHint = null,
   onResume,
   onOpenLogDir,
+  viewingExisting = false,
   logs,
   onStop,
   onReset,
@@ -241,11 +244,19 @@ const StepProcessingComponent = ({
                   <path className="animate-check-draw" d="M4 8.5L7 11.5L12 4.5" stroke="var(--color-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
-              <h2 className="processing-title">下载完成！</h2>
+              <h2 className="processing-title">
+                {viewingExisting ? "已有备份" : outcome?.added != null ? "更新完成！" : "下载完成！"}
+              </h2>
             </div>
 
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>
-              {issues.length > 0 ? "下载已结束，但有以下内容没能拿全：" : "微博已下载完成，可选择格式导出"}
+              {issues.length > 0
+                ? "下载已结束，但有以下内容没能拿全："
+                : viewingExisting
+                  ? "这是此目录里已有的备份。可以直接导出；返回后点「开始下载」只会补上新微博。"
+                  : outcome?.added != null
+                    ? "只抓取了新微博，原有的保持不变。可选择格式导出"
+                    : "微博已下载完成，可选择格式导出"}
             </p>
 
             {issues.length > 0 && (
@@ -258,10 +269,18 @@ const StepProcessingComponent = ({
               </div>
             )}
 
+            {outcome?.startedOver && (
+              <div style={{ fontSize: 12, color: "var(--color-warning)", marginBottom: 12 }}>
+                {outcome.startedOver}
+              </div>
+            )}
+
             {(outcome?.saved ?? total) > 0 && (
               <div style={statBoxStyle}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
-                  共保存 {outcome?.saved ?? total} 条微博
+                  {outcome?.added != null
+                    ? `新增 ${outcome.added} 条，原有 ${outcome.unchanged ?? 0} 条未改动，共 ${outcome.saved} 条`
+                    : `共保存 ${outcome?.saved ?? total} 条微博`}
                 </div>
                 {outcome?.resumedFromPage && (
                   <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 4 }}>

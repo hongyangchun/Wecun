@@ -5,6 +5,7 @@ import type { ProgressEvent } from "../types/contracts";
 
 vi.mock("../lib/tauri-bridge", () => ({
   startDownload: vi.fn(),
+  inspectBackup: vi.fn(),
   cancelDownload: vi.fn(),
   exportPosts: vi.fn(),
   openOutputDir: vi.fn(),
@@ -45,6 +46,7 @@ async function reportFromBackend(event: ProgressEvent) {
 describe("continuing a stopped download", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -72,6 +74,30 @@ describe("continuing a stopped download", () => {
     await waitFor(() => expect(startDownloadMock).toHaveBeenCalledTimes(1));
     expect(startDownloadMock.mock.calls[0][0].uid, "the form is reused as it was").toBe("2166767661");
     expect(screen.queryByText("继续下载")).toBeNull();
+  });
+
+  it("recognises the backup already in the directory and exports it without downloading", async () => {
+    localStorage.setItem("weibo-dl-settings", JSON.stringify({ outputDir: "/tmp/weibo" }));
+    vi.mocked(bridgeModule.inspectBackup).mockResolvedValue({
+      uid: "2166767661",
+      source_type: "profile",
+      post_count: 12,
+      author: "测试博主",
+      filter: "all",
+      min_text_length: 0,
+      ignore_deleted: false,
+      start_timestamp: null,
+      end_timestamp: null,
+    });
+    await renderSignedIn();
+    fireEvent.change(screen.getByPlaceholderText(/粘贴微博主页链接/), { target: { value: "https://weibo.com/u/2166767661" } });
+
+    expect(await screen.findByText(/已有 @测试博主 的备份，共 12 条/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("导出已有备份"));
+
+    expect(await screen.findByRole("heading", { name: "已有备份" })).toBeTruthy();
+    expect(startDownloadMock).not.toHaveBeenCalled();
   });
 
   it("offers nothing to continue when the stop saved no progress", async () => {

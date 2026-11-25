@@ -3,7 +3,7 @@ import { SegmentedControl } from "./ui";
 import { pickDirectory } from "../lib/dialog";
 import { lookupUserInfo } from "../lib/tauri-bridge";
 import { extractUidFromUrl, isValidProfileUrl } from "../lib/validation";
-import type { DownloadRange, PostFilter, RecentTarget } from "../types/contracts";
+import type { BackupMeta, DownloadRange, PostFilter, RecentTarget } from "../types/contracts";
 
 interface WorkspaceFormProps {
   sourceType: "profile" | "favorites";
@@ -34,6 +34,11 @@ interface WorkspaceFormProps {
   onOpenOutputDir: () => void;
   onStartDownload: () => void;
   canStart: boolean;
+  /** The finished backup in the chosen directory, when it is the current target's. */
+  existingBackup: BackupMeta | null;
+  freshDownload: boolean;
+  onFreshDownloadChange: (value: boolean) => void;
+  onExportExisting: () => void;
 }
 
 function formatDate(d: Date): string {
@@ -125,6 +130,10 @@ export default function WorkspaceForm({
   onOpenOutputDir,
   onStartDownload,
   canStart,
+  existingBackup,
+  freshDownload,
+  onFreshDownloadChange,
+  onExportExisting,
 }: WorkspaceFormProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
@@ -444,6 +453,22 @@ export default function WorkspaceForm({
                   </div>
                 </label>
               )}
+
+              {existingBackup && (
+                <label className="check-row" style={{ padding: 0, marginTop: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={freshDownload}
+                    onChange={(e) => onFreshDownloadChange(e.target.checked)}
+                  />
+                  <div>
+                    <span className="check-label">重新完整下载</span>
+                    <span className="check-hint" style={{ display: "block" }}>
+                      忽略此目录已有的备份，从第一页重新抓取
+                    </span>
+                  </div>
+                </label>
+              )}
             </div>
           )}
         </div>
@@ -494,6 +519,23 @@ export default function WorkspaceForm({
           </span>
         </div>
       </section>
+
+      {/* 4. What the directory already holds */}
+      {existingBackup && (
+        <section className="workspace-card">
+          <div className="workspace-card-header">
+            <span className="workspace-card-title">已有备份</span>
+            <button type="button" className="inline-pill-btn" onClick={onExportExisting}>
+              导出已有备份
+            </button>
+          </div>
+
+          <p className="form-hint" style={{ margin: 0 }}>
+            此目录已有 {existingBackup.source_type === "favorites" ? "当前账号的收藏" : `@${existingBackup.author}`} 的备份，共{" "}
+            {existingBackup.post_count} 条。{!freshDownload && "点「开始下载」只会补上新微博。"}
+          </p>
+        </section>
+      )}
     </div>
   );
 }
