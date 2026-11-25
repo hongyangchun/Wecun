@@ -126,8 +126,7 @@ impl AppState {
         if wait.is_zero() {
             return false;
         }
-        tokio::time::sleep(wait).await;
-        self.download_was_stopped()
+        self.sleep_cancellable(wait).await
     }
 
     /// The running download was stopped. The stop of an earlier download does not count: requests

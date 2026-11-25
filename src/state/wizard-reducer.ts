@@ -289,6 +289,9 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         outcome: null,
         resumeHint: null,
         viewingExisting: false,
+        // "重新完整下载" was for the download that starts now. It sits in a collapsed section, where a
+        // setting left on would quietly turn every later download, 继续下载 included, into a full one.
+        freshDownload: false,
         exportedFormats: [],
         logs: ["开始下载..."],
       };
@@ -364,9 +367,6 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         // Returning to the export grid, or finishing a profile analysis, must not hide what went wrong.
         outcome: action.outcome ?? state.outcome ?? null,
         viewingExisting: false,
-        // "重新完整下载" was for that one download. It sits in a collapsed section, where a setting
-        // left on would quietly turn every later download into a full one.
-        freshDownload: false,
       };
 
     case "PROCESS_COMPLETE":

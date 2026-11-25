@@ -46,7 +46,8 @@ pub struct CheckpointMeta {
     /// Posts the walk started from, when it is adding to an earlier backup.
     #[serde(default)]
     pub base_posts: usize,
-    /// Posts this run saw and left out because of the rules. An update treats them as handled.
+    /// The posts the backup being updated left out because of the rules, when this checkpoint
+    /// interrupts an update. Empty otherwise.
     #[serde(default)]
     pub skipped_ids: Vec<String>,
 }
