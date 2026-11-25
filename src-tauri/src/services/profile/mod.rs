@@ -33,7 +33,14 @@ impl ProfileService {
             None
         };
 
+        let author_name = posts
+            .iter()
+            .map(|p| p.author.trim())
+            .find(|a| !a.is_empty())
+            .map(str::to_string);
+
         Ok(ProfileResult {
+            author_name,
             basic_stats: local_stats.basic_stats,
             content_analysis: local_stats.content_analysis,
             influence_metrics: local_stats.influence_metrics,

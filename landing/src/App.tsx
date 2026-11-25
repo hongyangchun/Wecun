@@ -1,27 +1,72 @@
 import { Github, Download, ArrowRight, FileText, ImageIcon, Shield, Monitor, Globe } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-function useTotalDownloads() {
-  const [count, setCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    fetch('https://api.github.com/repos/hongyangchun/Wecun/releases')
-      .then((res) => res.json())
-      .then((releases: Array<{ assets: Array<{ download_count: number }> }>) => {
-        const total = releases.reduce((sum, release) => {
-          return sum + release.assets.reduce((s, a) => s + a.download_count, 0);
-        }, 0);
-        setCount(total);
-      })
-      .catch(() => setCount(null));
-  }, []);
-
-  return count;
+interface GitHubReleaseAsset {
+  name: string;
+  download_count: number;
+  browser_download_url: string;
 }
 
-function DownloadCount({ className = '' }: { className?: string }) {
-  const count = useTotalDownloads();
+interface GitHubRelease {
+  tag_name: string;
+  draft?: boolean;
+  prerelease?: boolean;
+  assets: GitHubReleaseAsset[];
+}
 
+interface ReleaseStats {
+  totalDownloads: number | null;
+  latestVersion: string;
+  platformUrls: Partial<Record<'macOS' | 'Windows' | 'Linux', string>>;
+}
+
+const FALLBACK_VERSION = 'v1.0.1';
+
+function useReleaseStats(): ReleaseStats {
+  const [stats, setStats] = useState<ReleaseStats>({
+    totalDownloads: null,
+    latestVersion: FALLBACK_VERSION,
+    platformUrls: {},
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('https://api.github.com/repos/hongyangchun/Wecun/releases')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to fetch releases'))))
+      .then((releases: GitHubRelease[]) => {
+        if (cancelled || !Array.isArray(releases)) return;
+        const totalDownloads = releases.reduce(
+          (sum, release) => sum + (release.assets ?? []).reduce((s, a) => s + a.download_count, 0),
+          0,
+        );
+        const latest = releases.find((r) => !r.draft && !r.prerelease) ?? releases[0];
+        const platformUrls: Partial<Record<'macOS' | 'Windows' | 'Linux', string>> = {};
+        if (latest?.assets) {
+          const mac = latest.assets.find((a) => a.name.endsWith('.dmg'));
+          const win = latest.assets.find((a) => a.name.endsWith('.exe'));
+          const linux = latest.assets.find((a) => a.name.endsWith('.AppImage')) ?? latest.assets.find((a) => a.name.endsWith('.deb'));
+          if (mac) platformUrls.macOS = mac.browser_download_url;
+          if (win) platformUrls.Windows = win.browser_download_url;
+          if (linux) platformUrls.Linux = linux.browser_download_url;
+        }
+        setStats({
+          totalDownloads,
+          latestVersion: latest?.tag_name || FALLBACK_VERSION,
+          platformUrls,
+        });
+      })
+      .catch(() => {
+        // Keep fallback URLs and hide download count when offline/rate-limited
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return stats;
+}
+
+function DownloadCount({ count, className = '' }: { count: number | null; className?: string }) {
   if (count === null) return null;
 
   return (
@@ -37,24 +82,24 @@ function DownloadCount({ className = '' }: { className?: string }) {
 const PLATFORMS = [
   {
     icon: Monitor,
-    name: 'macOS',
+    name: 'macOS' as const,
     desc: 'Apple Silicon & Intel',
     format: '.dmg',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.0_universal.dmg',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.1_universal.dmg',
   },
   {
     icon: Monitor,
-    name: 'Windows',
+    name: 'Windows' as const,
     desc: 'x64',
     format: '.exe',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.0_x64-setup.exe',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.1_x64-setup.exe',
   },
   {
     icon: Globe,
-    name: 'Linux',
+    name: 'Linux' as const,
     desc: 'Ubuntu / Debian',
     format: '.AppImage / .deb',
-    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.0_amd64.AppImage',
+    download: 'https://github.com/hongyangchun/Wecun/releases/latest/download/Wecun_1.0.1_amd64.AppImage',
   },
 ];
 
@@ -119,6 +164,8 @@ const STEPS = [
 ];
 
 export default function App() {
+  const { totalDownloads, latestVersion, platformUrls } = useReleaseStats();
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -167,9 +214,9 @@ export default function App() {
             <div className="flex flex-wrap items-center gap-3 mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-text-muted)]">
                 <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] pulse-dot"></span>
-                <span className="mono text-xs">v1.0.0 现已可用</span>
+                <span className="mono text-xs">{latestVersion} 现已可用</span>
               </div>
-              <DownloadCount className="text-sm text-[var(--color-text-muted)]" />
+              <DownloadCount count={totalDownloads} className="text-sm text-[var(--color-text-muted)]" />
             </div>
 
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
@@ -193,47 +240,6 @@ export default function App() {
               </a>
             </div>
           </div>
-
-          {/* Terminal Preview */}
-          <div className="mt-20 animate-fade-up animate-delay-200">
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden shadow-2xl shadow-black/50">
-              {/* Window Controls */}
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg)]">
-                <div className="w-3 h-3 rounded-full bg-[#ff5f57]"></div>
-                <div className="w-3 h-3 rounded-full bg-[#febc2e]"></div>
-                <div className="w-3 h-3 rounded-full bg-[#28c840]"></div>
-                <span className="ml-4 mono text-xs text-[var(--color-text-muted)]">微存 — 微博备份</span>
-              </div>
-              {/* Content */}
-              <div className="p-6 font-mono text-sm leading-relaxed">
-                <div className="text-[var(--color-text-muted)]">
-                  <span className="text-[var(--color-accent)]">$</span> wecun download --user 2166767661
-                </div>
-                <div className="mt-4 space-y-1">
-                  <div>
-                    <span className="text-[var(--color-accent)]">✓</span>{' '}
-                    <span className="text-[var(--color-text)]">已连接微博账号</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--color-accent)]">✓</span>{' '}
-                    <span className="text-[var(--color-text)]">正在获取 @微博用户 的微博...</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--color-accent)]">→</span>{' '}
-                    <span className="text-[var(--color-text)]">已下载 1,234 条微博</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--color-accent)]">→</span>{' '}
-                    <span className="text-[var(--color-text)]">下载图片 567 张 (1.2 GB)</span>
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
-                    <span className="text-[#28c840]">✓ 导出完成</span>
-                    <span className="text-[var(--color-text-muted)] ml-4">→ ~/Documents/wecun/</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -247,11 +253,11 @@ export default function App() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-2 gap-12">
             {FEATURES.map((feature, i) => (
               <div
                 key={feature.title}
-                className={`card animate-fade-up animate-delay-${(i + 1) * 100}`}
+                className={`animate-fade-up animate-delay-${(i + 1) * 100}`}
               >
                 <div className="w-12 h-12 rounded-lg bg-[var(--color-accent-dim)] flex items-center justify-center mb-6">
                   <feature.icon size={24} className="text-[var(--color-accent)]" />
@@ -282,7 +288,7 @@ export default function App() {
                 key={screenshot.src}
                 className={`animate-fade-up animate-delay-${(i + 1) * 100}`}
               >
-                <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] overflow-hidden shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40 hover:-translate-y-1 transition-all duration-300">
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] overflow-hidden">
                   <img
                     src={screenshot.src}
                     alt={screenshot.alt}
@@ -339,7 +345,7 @@ export default function App() {
               </p>
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center mono text-sm font-bold">
+                  <div className="w-10 h-10 rounded-lg border border-[var(--color-border)] flex items-center justify-center mono text-sm font-bold">
                     .md
                   </div>
                   <div>
@@ -348,7 +354,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center mono text-sm font-bold">
+                  <div className="w-10 h-10 rounded-lg border border-[var(--color-border)] flex items-center justify-center mono text-sm font-bold">
                     .md
                   </div>
                   <div>
@@ -357,7 +363,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center mono text-sm font-bold">
+                  <div className="w-10 h-10 rounded-lg border border-[var(--color-border)] flex items-center justify-center mono text-sm font-bold">
                     .html
                   </div>
                   <div>
@@ -401,11 +407,11 @@ export default function App() {
           <p className="text-[var(--color-text-muted)] text-lg mb-4 max-w-xl mx-auto">
             选择你的平台，下载并安装。完全免费，开源透明。
           </p>
-          <DownloadCount className="text-sm text-[var(--color-text-muted)] mb-12 justify-center" />
+          <DownloadCount count={totalDownloads} className="text-sm text-[var(--color-text-muted)] mb-12 justify-center" />
 
           <div className="grid md:grid-cols-3 gap-6 max-w-3xl mx-auto mb-12">
             {PLATFORMS.map((platform) => (
-              <div key={platform.name} className="card text-center group cursor-pointer">
+              <div key={platform.name} className="text-center group cursor-pointer">
                 <platform.icon
                   size={32}
                   className="mx-auto mb-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent)] transition-colors"
@@ -413,7 +419,7 @@ export default function App() {
                 <div className="font-semibold text-lg mb-1">{platform.name}</div>
                 <div className="text-sm text-[var(--color-text-muted)] mb-4">{platform.desc}</div>
                 <a
-                  href={platform.download}
+                  href={platformUrls[platform.name] ?? platform.download}
                   download
                   className="btn-primary w-full justify-center text-sm inline-flex"
                 >

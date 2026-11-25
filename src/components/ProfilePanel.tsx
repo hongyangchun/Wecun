@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openOutputDir } from "../lib/tauri-bridge";
 import type { ProfileResult } from "../types/contracts";
 
 interface ProfilePanelProps {
@@ -103,8 +104,7 @@ export default function ProfilePanel({ profile, authorName, onExportOpenclaw, on
   const handleOpenDirectory = async () => {
     if (exportedPath) {
       try {
-        const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-        await revealItemInDir(exportedPath);
+        await openOutputDir(exportedPath);
       } catch (err) {
         console.error("Failed to open directory:", err);
       }
@@ -161,7 +161,9 @@ export default function ProfilePanel({ profile, authorName, onExportOpenclaw, on
         {deepProfile?.keywords?.topKeywords && deepProfile.keywords.topKeywords.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginBottom: 6 }}>关键词</div>
-            <TagList items={deepProfile.keywords.topKeywords.map((k, i) => [k, i + 1] as [string, number])} />
+            <TagList
+              items={deepProfile.keywords.topKeywords.map((k, i, arr) => [k, arr.length - i] as [string, number])}
+            />
           </div>
         )}
         {contentAnalysis.topHashtags.length > 0 && (

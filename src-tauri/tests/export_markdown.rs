@@ -15,6 +15,7 @@ fn sample_posts() -> Vec<WeiboPost> {
         }],
         is_repost: false,
         repost_user: None,
+        repost_text: None,
         region: Some("发布于 北京".to_string()),
         source_url: "https://weibo.com/123/Otest123".to_string(),
         author: "测试用户".to_string(),

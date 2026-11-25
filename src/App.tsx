@@ -223,7 +223,7 @@ function AppShell() {
     if (state.step === 2) {
       if (state.sourceType === "favorites") return true;
       if (state.downloadRange === "range") {
-        return !!state.dateStart && !!state.dateEnd;
+        return !!state.dateStart && !!state.dateEnd && state.dateStart <= state.dateEnd;
       }
       return true;
     }
@@ -326,7 +326,7 @@ function AppShell() {
     try {
       const result = await analyzeProfile(state.outputDir);
       setProfileResult(result);
-      setProfileAuthorName(state.profileUrl.split("/").pop() || "博主");
+      setProfileAuthorName(result.authorName || extractUidFromUrl(state.profileUrl) || "博主");
       dispatch({ type: "DOWNLOAD_COMPLETE" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -666,7 +666,11 @@ function AppShell() {
               <div className="step-hint">
                 {state.step === 0 && "请先登录微博账号"}
                 {state.step === 1 && state.sourceType === "profile" && "请输入有效的微博主页地址"}
-                {state.step === 2 && state.sourceType === "profile" && state.downloadRange === "range" && "请选择开始和结束日期"}
+                {state.step === 2 && state.sourceType === "profile" && state.downloadRange === "range" && (
+                  state.dateStart && state.dateEnd && state.dateStart > state.dateEnd
+                    ? "开始日期不能晚于结束日期"
+                    : "请选择开始和结束日期"
+                )}
                 {state.step === 3 && "请选择保存目录"}
               </div>
             )}
@@ -680,6 +684,7 @@ function AppShell() {
             progress={state.progress}
             current={state.current}
             total={state.total}
+            errorMessage={state.errorMessage}
             logs={state.logs}
             onStop={handleStop}
             onReset={handleReset}

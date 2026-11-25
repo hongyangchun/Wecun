@@ -44,6 +44,7 @@ export interface ProgressEvent {
 export type DownloadStatus = "ready" | "downloading" | "done" | "cancelled" | "error";
 
 export interface ProfileResult {
+  authorName?: string | null;
   basicStats: BasicStats;
   contentAnalysis: ContentAnalysis;
   influenceMetrics: InfluenceMetrics;

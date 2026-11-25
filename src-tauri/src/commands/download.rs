@@ -61,7 +61,7 @@ pub async fn start_download(
 
 #[tauri::command]
 pub fn cancel_download(state: State<'_, AppState>) {
-    state.cancel_flag.store(true, Ordering::Relaxed);
+    state.cancel();
 }
 
 #[tauri::command]
@@ -69,7 +69,8 @@ pub async fn export_posts(
     request: ExportRequest,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let bundle = crate::services::cache::load_cache_bundle_sync(&request.output_dir)
+    let bundle = crate::services::cache::load_cache_bundle(&request.output_dir)
+        .await
         .map_err(|e| {
             if matches!(e, AppError::Io(ref io_err) if io_err.kind() == std::io::ErrorKind::NotFound) {
                 "找不到缓存文件，请先完成下载".to_string()

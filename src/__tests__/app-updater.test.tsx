@@ -13,7 +13,12 @@ vi.mock("../lib/tauri-bridge", () => ({
   onCookieReceived: vi.fn().mockResolvedValue(vi.fn()),
   onLoginInvalid: vi.fn().mockResolvedValue(vi.fn()),
   hasSavedCookie: vi.fn().mockResolvedValue(false),
+  getSavedCookie: vi.fn().mockResolvedValue(""),
+  getCurrentUserInfo: vi.fn().mockResolvedValue(""),
+  setCookie: vi.fn().mockResolvedValue(undefined),
   loadSavedCookie: vi.fn().mockResolvedValue(""),
+  analyzeProfile: vi.fn(),
+  exportProfile: vi.fn(),
   checkForAppUpdate: vi.fn(),
   relaunchApp: vi.fn(),
 }));

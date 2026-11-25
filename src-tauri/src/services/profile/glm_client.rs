@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -121,11 +123,12 @@ pub struct GlmClient {
 impl GlmClient {
     pub fn new() -> Self {
         let api_key = load_api_key();
+        let client = Client::builder()
+            .timeout(Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| Client::new());
 
-        Self {
-            client: Client::new(),
-            api_key,
-        }
+        Self { client, api_key }
     }
 
     pub fn is_configured(&self) -> bool {
@@ -242,8 +245,8 @@ fn load_api_key() -> String {
         }
     }
 
-    // 内置 Key（生产环境）
-    "sk-22de1e879d7245c397d87582490bee2a".to_string()
+    // 未配置 Key 时返回空字符串，仅输出本地统计画像
+    String::new()
 }
 
 fn format_post_date(created_at: &str) -> String {

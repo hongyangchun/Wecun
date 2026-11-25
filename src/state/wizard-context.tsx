@@ -39,22 +39,33 @@ export function WizardProvider({ children }: WizardProviderProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | undefined;
     onProgress((e) => {
       if (cancelled) return;
       dispatch({ type: "UPDATE_PROGRESS", ...e });
     }).then((fn) => {
-      if (!cancelled) return;
-      fn();
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
-    const fn = onCookieReceived(async (cookie) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    onCookieReceived(async (cookie) => {
+      if (cancelled) return;
       dispatch({ type: "LOGIN_SUCCESS", cookie });
       // Fetch username after successful login
       try {
         const username = await getCurrentUserInfo();
+        if (cancelled) return;
         if (username) {
           dispatch({ type: "SET_USERNAME", username });
         } else {
@@ -62,38 +73,65 @@ export function WizardProvider({ children }: WizardProviderProps) {
           dispatch({ type: "USERNAME_FETCH_FAILED" });
         }
       } catch {
+        if (cancelled) return;
         // Username fetch failed - might indicate cookie validation issue
         dispatch({ type: "USERNAME_FETCH_FAILED" });
       }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => { fn.then((u) => u()); };
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
-    const fn = onLoginInvalid((message) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    onLoginInvalid((message) => {
+      if (cancelled) return;
       dispatch({ type: "LOGIN_INVALID", message });
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => { fn.then((u) => u()); };
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   // Load saved cookie on mount - prefill cookie and silently validate
   useEffect(() => {
     const loadCookie = async () => {
-      const cookie = await getSavedCookie();
-      if (cookie) {
-        dispatch({ type: "SET_COOKIE", cookie });
-        // Set cookie in backend state first, then validate
-        try {
-          await setCookie(cookie);
-          const username = await getCurrentUserInfo();
-          if (username) {
-            dispatch({ type: "LOGIN_SUCCESS", cookie, username });
+      try {
+        const cookie = await getSavedCookie();
+        if (cookie) {
+          dispatch({ type: "SET_COOKIE", cookie });
+          // Set cookie in backend state first, then validate
+          try {
+            await setCookie(cookie);
+            const username = await getCurrentUserInfo();
+            if (username) {
+              dispatch({ type: "LOGIN_SUCCESS", cookie, username });
+            }
+          } catch {
+            // Cookie invalid or expired, user will need to login manually
           }
-        } catch {
-          // Cookie invalid or expired, user will need to login manually
         }
+      } catch {
+        // Ignore storage read failure on startup so UI still initializes
+      } finally {
+        setInitialized(true);
       }
-      setInitialized(true);
     };
     loadCookie();
   }, []);

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use tokio::fs;
 
@@ -7,22 +8,29 @@ use crate::error::AppError;
 use crate::models::{ExportContext, WeiboPost};
 use crate::services::file_naming::{format_date_range_for_filename, unified_export_filename};
 
-// Pre-computed sets for ammonia configuration
-fn get_allowed_tags() -> HashSet<&'static str> {
-    HashSet::from([
-        "a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6",
-        "hr", "i", "img", "li", "ol", "p", "pre", "span", "strong", "table", "tbody", "td",
-        "th", "thead", "tr", "ul",
-    ])
-}
+fn html_sanitizer() -> &'static ammonia::Builder<'static> {
+    static BUILDER: OnceLock<ammonia::Builder<'static>> = OnceLock::new();
+    BUILDER.get_or_init(|| {
+        let allowed_tags = HashSet::from([
+            "a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+            "hr", "i", "img", "li", "ol", "p", "pre", "span", "strong", "table", "tbody", "td",
+            "th", "thead", "tr", "ul",
+        ]);
+        let tag_attributes = HashMap::from([
+            ("a", HashSet::from(["href", "title"])),
+            ("img", HashSet::from(["src", "alt", "title", "width", "height"])),
+            ("th", HashSet::from(["colspan", "rowspan"])),
+            ("td", HashSet::from(["colspan", "rowspan"])),
+        ]);
 
-fn get_tag_attributes() -> HashMap<&'static str, HashSet<&'static str>> {
-    HashMap::from([
-        ("a", HashSet::from(["href", "title"])),
-        ("img", HashSet::from(["src", "alt", "title", "width", "height"])),
-        ("th", HashSet::from(["colspan", "rowspan"])),
-        ("td", HashSet::from(["colspan", "rowspan"])),
-    ])
+        let mut builder = ammonia::Builder::default();
+        builder
+            .tags(allowed_tags)
+            .tag_attributes(tag_attributes)
+            .link_rel(None)
+            .url_relative(ammonia::UrlRelative::PassThrough);
+        builder
+    })
 }
 
 pub struct HtmlExportService;
@@ -122,6 +130,17 @@ impl HtmlExportService {
                 sanitize_html_content(&post.text)
             ));
 
+            if post.is_repost {
+                if let Some(repost_text) = &post.repost_text {
+                    if !repost_text.trim().is_empty() {
+                        html.push_str(&format!(
+                            "<blockquote class=\"post-repost-content\">{}</blockquote>\n",
+                            sanitize_html_content(repost_text)
+                        ));
+                    }
+                }
+            }
+
             if !post.images.is_empty() {
                 html.push_str("<div class=\"post-images\">\n");
                 for (i, img) in post.images.iter().enumerate() {
@@ -157,8 +176,6 @@ impl HtmlExportService {
 }
 
 fn sanitize_html_content(html: &str) -> String {
-    use ammonia::Builder;
-
     // Pre-process: normalize br tags but preserve existing structure
     let preprocessed = html
         .replace("<br />", "<br>")
@@ -181,15 +198,7 @@ fn sanitize_html_content(html: &str) -> String {
         format!("<p>{}</p>", preprocessed)
     };
 
-    // Configure ammonia to preserve structure
-    let clean = Builder::default()
-        .tags(get_allowed_tags())
-        .tag_attributes(get_tag_attributes())
-        .link_rel(None)
-        .url_relative(ammonia::UrlRelative::PassThrough)
-        .clean(&content_to_clean);
-
-    clean.to_string()
+    html_sanitizer().clean(&content_to_clean).to_string()
 }
 
 fn html_escape(s: &str) -> String {
@@ -275,6 +284,17 @@ header h1 {
     color: #5b5bb4;
     font-style: italic;
     margin-bottom: 8px;
+}
+
+.post-repost-content {
+    margin: 8px 0 12px;
+    padding: 12px 14px;
+    border-left: 3px solid #d0d0d8;
+    background: #f8f8fa;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #48484a;
 }
 
 .post-content {
@@ -510,6 +530,7 @@ mod tests {
             }],
             is_repost: false,
             repost_user: None,
+            repost_text: None,
             region: Some("发布于 北京".to_string()),
             source_url: format!("https://weibo.com/123/{id}"),
             author: "测试用户".to_string(),
@@ -525,6 +546,7 @@ mod tests {
             images: vec![],
             is_repost: true,
             repost_user: Some("原作者".to_string()),
+            repost_text: Some("<p>原微博正文</p>".to_string()),
             region: None,
             source_url: format!("https://weibo.com/123/{id}"),
             author: "测试用户".to_string(),

@@ -4,6 +4,7 @@ use tokio::fs;
 
 use crate::error::AppError;
 use crate::services::cache;
+use crate::services::file_naming::sanitize_filename;
 use crate::services::profile::models::ProfileResult;
 
 pub struct ProfileExportService;
@@ -245,29 +246,4 @@ fn extract_uid_from_source_url(source_url: &str) -> String {
         .find(|segment| segment.chars().all(|ch| ch.is_ascii_digit()))
         .map(|segment| segment.to_string())
         .unwrap_or_else(|| "unknown".to_string())
-}
-
-/// Sanitize a screen name for use as a filename.
-/// Replaces invalid filesystem characters with underscores.
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() || matches!(ch, '—'|'-'|'_') {
-                ch
-            } else if is_cjk_char(ch) {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
-
-fn is_cjk_char(ch: char) -> bool {
-    matches!(
-        ch as u32,
-        0x4E00..=0x9FFF | 0x3400..=0x4DBF | 0x20000..=0x2A6DF | 0x2A700..=0x2B73F
-    )
 }

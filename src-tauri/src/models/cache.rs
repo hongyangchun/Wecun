@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::request::SourceType;
+use super::request::{PostFilter, SourceType};
 use super::WeiboPost;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +26,12 @@ pub struct CheckpointMeta {
     pub last_page: usize,
     pub total_fetched: usize,
     pub total_posts: i64,
+    #[serde(default)]
+    pub filter: Option<PostFilter>,
+    #[serde(default)]
+    pub start_timestamp: Option<i64>,
+    #[serde(default)]
+    pub end_timestamp: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 use std::{collections::{HashMap, HashSet}, path::Path};
 
-use chrono::{Datelike, TimeZone, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, TimeZone, Utc};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
@@ -47,72 +48,68 @@ fn count_visible_chars(html: &str) -> usize {
     count
 }
 
-fn parse_weibo_date_to_timestamp(created_at: &str) -> i64 {
+pub fn parse_weibo_datetime(created_at: &str) -> Option<DateTime<FixedOffset>> {
     let created_at = created_at.trim();
     if created_at.is_empty() {
-        return 0;
+        return None;
     }
 
-    let offset = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    let offset = FixedOffset::east_opt(8 * 3600)?;
 
     // Standard Weibo format: "Wed Mar 19 09:53:32 +0800 2014"
-    if let Ok(dt) = chrono::DateTime::parse_from_str(created_at, "%a %b %d %H:%M:%S %z %Y") {
-        return dt.timestamp();
+    if let Ok(dt) = DateTime::parse_from_str(created_at, "%a %b %e %H:%M:%S %z %Y") {
+        return Some(dt);
     }
 
     // Format: "2024-03-19 09:53:32"
     if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(created_at, "%Y-%m-%d %H:%M:%S") {
-        // Assume +0800 if no offset
         if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
-            return dt_with_tz.timestamp();
+            return Some(dt_with_tz);
         }
     }
 
     // Relative formats (often used in some API views)
     let now_utc = Utc::now();
-    let now_ts = now_utc.timestamp();
-    
+
     if created_at.contains("秒前") {
-        if let Some(n) = created_at.split("秒").next().and_then(|s| s.parse::<i64>().ok()) {
-            return now_ts - n;
+        if let Some(n) = created_at.split('秒').next().and_then(|s| s.trim().parse::<i64>().ok()) {
+            return Some((now_utc - chrono::Duration::seconds(n)).with_timezone(&offset));
         }
     }
     if created_at.contains("分钟前") {
-        if let Some(n) = created_at.split("分").next().and_then(|s| s.parse::<i64>().ok()) {
-            return now_ts - n * 60;
+        if let Some(n) = created_at.split('分').next().and_then(|s| s.trim().parse::<i64>().ok()) {
+            return Some((now_utc - chrono::Duration::minutes(n)).with_timezone(&offset));
         }
     }
     if created_at.contains("小时前") {
-        if let Some(n) = created_at.split("小").next().and_then(|s| s.parse::<i64>().ok()) {
-            return now_ts - n * 3600;
+        if let Some(n) = created_at.split('小').next().and_then(|s| s.trim().parse::<i64>().ok()) {
+            return Some((now_utc - chrono::Duration::hours(n)).with_timezone(&offset));
         }
     }
     if created_at.contains("今天") {
-        // Format: "今天 10:00"
         if let Some(hm) = created_at.split_whitespace().nth(1) {
             let mut parts = hm.split(':');
             let h = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
             let m = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-            
+
             let bj_now = now_utc.with_timezone(&offset);
             if let Some(dt) = bj_now.date_naive().and_hms_opt(h, m, 0) {
                 if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
-                    return dt_with_tz.timestamp();
+                    return Some(dt_with_tz);
                 }
             }
         }
     }
     if created_at.contains("昨天") {
-        // Format: "昨天 10:00"
         if let Some(hm) = created_at.split_whitespace().nth(1) {
             let mut parts = hm.split(':');
             let h = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
             let m = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-            
+
             let bj_yesterday = (now_utc - chrono::Duration::days(1)).with_timezone(&offset);
             if let Some(dt) = bj_yesterday.date_naive().and_hms_opt(h, m, 0) {
                 if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
-                    return dt_with_tz.timestamp();
+                    return Some(dt_with_tz);
                 }
             }
         }
@@ -125,7 +122,7 @@ fn parse_weibo_date_to_timestamp(created_at: &str) -> i64 {
         let full_date = format!("{}-{}", year, created_at);
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&full_date, "%Y-%m-%d %H:%M") {
             if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
-                return dt_with_tz.timestamp();
+                return Some(dt_with_tz);
             }
         }
     }
@@ -135,14 +132,19 @@ fn parse_weibo_date_to_timestamp(created_at: &str) -> i64 {
         if let Ok(date) = chrono::NaiveDate::parse_from_str(&created_at[..10], "%Y-%m-%d") {
             if let Some(dt) = date.and_hms_opt(0, 0, 0) {
                 if let Some(dt_with_tz) = offset.from_local_datetime(&dt).single() {
-                    return dt_with_tz.timestamp();
+                    return Some(dt_with_tz);
                 }
             }
         }
     }
 
-    // Last resort: try to parse any date-like string
-    0
+    None
+}
+
+fn parse_weibo_date_to_timestamp(created_at: &str) -> i64 {
+    parse_weibo_datetime(created_at)
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0)
 }
 
 pub fn normalize_raw_post_for_export(
@@ -212,8 +214,15 @@ impl DownloadService {
 
         let mut resumed_posts: Vec<WeiboPost> = Vec::new();
         let mut resumed_total_fetched = 0_usize;
-        let start_page = match crate::services::cache::load_cache_bundle_sync(&request.output_dir) {
-            Ok(bundle) if bundle.checkpoint.as_ref().is_some_and(|c| c.uid == request.uid) => {
+        let checkpoint_matches = |c: &CheckpointMeta| {
+            c.uid == request.uid
+                && c.source_type.as_ref().is_none_or(|st| st == &request.source_type)
+                && c.filter.as_ref().is_none_or(|f| f == &request.filter)
+                && c.start_timestamp == request.date_range.start_timestamp
+                && c.end_timestamp == request.date_range.end_timestamp
+        };
+        let start_page = match crate::services::cache::load_cache_bundle(&request.output_dir).await {
+            Ok(bundle) if bundle.checkpoint.as_ref().is_some_and(checkpoint_matches) => {
                 let cp = bundle.checkpoint.expect("checkpoint should exist");
                 resumed_posts = bundle.posts;
                 resumed_total_fetched = cp.total_fetched;
@@ -258,17 +267,20 @@ impl DownloadService {
         let mut total_posts = 0_i64;
         let mut page = start_page as i64;
         let mut last_fetched_page = start_page.saturating_sub(1);
-        let mut empty_pages_count = 0;
+        let mut api_empty_pages_count = 0_usize;
+        let mut filtered_empty_pages_count = 0_usize;
 
         loop {
             self.ensure_not_cancelled(state, app)?;
 
-            let (posts, total) = match request.source_type {
+            let (posts, total, api_returned_empty) = match request.source_type {
                 SourceType::Profile => {
                     // Don't pass starttime/endtime to API - it causes 50 post limit
                     // We'll filter on the client side instead
+                    #[cfg(debug_assertions)]
                     eprintln!("[DEBUG] Fetching page {} - date filter will be applied client-side", page);
                     let (raw_posts, api_total) = client.fetch_posts_page(&request.uid, page, None, None).await?;
+                    let raw_empty = raw_posts.is_empty();
 
                     // Check if all posts on this page are older than start time
                     // If so, we've gone past the date range and can stop
@@ -277,7 +289,8 @@ impl DownloadService {
                             let ts = parse_weibo_date_to_timestamp(&p.created_at);
                             ts > 0 && ts < start
                         });
-                        if !raw_posts.is_empty() && all_older {
+                        if !raw_empty && all_older {
+                            #[cfg(debug_assertions)]
                             eprintln!("[DEBUG] All posts on page {} are older than start date, stopping", page);
                             break;
                         }
@@ -286,15 +299,18 @@ impl DownloadService {
                     // Filter by date range on the client side
                     let filtered: Vec<RawPost> = raw_posts.into_iter().filter(|p| {
                         let ts = parse_weibo_date_to_timestamp(&p.created_at);
-                        if ts == 0 && !p.created_at.is_empty() {
-                            // Warn but don't filter out posts with unparseable dates
-                            self.emit(
-                                app,
-                                ProgressPhase::FetchingPostList,
-                                0,
-                                0,
-                                &format!("⚠️ 警告：无法解析日期格式 \"{}\"", p.created_at),
-                            );
+                        if ts == 0 {
+                            if !p.created_at.is_empty() {
+                                // Warn and preserve posts with unparseable dates
+                                self.emit(
+                                    app,
+                                    ProgressPhase::FetchingPostList,
+                                    0,
+                                    0,
+                                    &format!("⚠️ 警告：无法解析日期格式 \"{}\"，已保留该微博", p.created_at),
+                                );
+                            }
+                            return true;
                         }
 
                         // Check date range
@@ -311,22 +327,27 @@ impl DownloadService {
                         true
                     }).collect();
 
-                    (filtered, api_total)
+                    (filtered, api_total, raw_empty)
                 }
                 SourceType::Favorites => {
                     let (all_fav_posts, _) = client.fetch_favorites_page(page, starttime, endtime).await?;
+                    let raw_empty = all_fav_posts.is_empty();
                     let mut filtered = Vec::new();
                     for p in all_fav_posts {
                         let ts = parse_weibo_date_to_timestamp(&p.created_at);
 
-                        if ts == 0 && !p.created_at.is_empty() {
-                            self.emit(
-                                app,
-                                ProgressPhase::FetchingPostList,
-                                0,
-                                0,
-                                &format!("⚠️ 警告：无法解析日期格式 \"{}\"，该微博可能会被过滤掉", p.created_at),
-                            );
+                        if ts == 0 {
+                            if !p.created_at.is_empty() {
+                                self.emit(
+                                    app,
+                                    ProgressPhase::FetchingPostList,
+                                    0,
+                                    0,
+                                    &format!("⚠️ 警告：无法解析日期格式 \"{}\"，已保留该微博", p.created_at),
+                                );
+                            }
+                            filtered.push(p);
+                            continue;
                         }
 
                         #[cfg(debug_assertions)]
@@ -344,15 +365,13 @@ impl DownloadService {
                         }
                         filtered.push(p);
                     }
-                    if filtered.is_empty() && page - start_page as i64 > 50 {
-                         // We might want to stop if we've gone too far, but let's see.
-                    }
-                    (filtered, -1)
+                    (filtered, -1, raw_empty)
                 }
             };
 
             if total_posts == 0 && total > 0 {
                 total_posts = total;
+                #[cfg(debug_assertions)]
                 eprintln!("[DEBUG] API returned total={} posts, page_size={}", total, posts.len());
                 state.total_posts.store(total.max(0) as usize, Ordering::Relaxed);
 
@@ -365,21 +384,31 @@ impl DownloadService {
                 state.total_pages.store(total_pages, Ordering::Relaxed);
             }
 
-            if posts.is_empty() {
-                empty_pages_count += 1;
-                // Allow more empty pages when date range is specified (API may have gaps)
-                let max_empty_pages = if starttime.is_some() || endtime.is_some() {
-                    50  // More tolerance for date-filtered queries - we might skip many pages
-                } else {
-                    3   // Fewer empty pages for normal queries
-                };
-                if empty_pages_count > max_empty_pages {
+            if api_returned_empty {
+                api_empty_pages_count += 1;
+                if api_empty_pages_count >= 2 {
                     break;
                 }
                 page += 1;
                 continue;
             }
-            empty_pages_count = 0;
+            api_empty_pages_count = 0;
+
+            if posts.is_empty() {
+                filtered_empty_pages_count += 1;
+                // Allow skipping pages newer than `endtime` when date range is specified
+                let max_filtered_empty = if starttime.is_some() || endtime.is_some() {
+                    50
+                } else {
+                    3
+                };
+                if filtered_empty_pages_count > max_filtered_empty {
+                    break;
+                }
+                page += 1;
+                continue;
+            }
+            filtered_empty_pages_count = 0;
 
             let new_posts: Vec<RawPost> = posts
                 .into_iter()
@@ -430,6 +459,9 @@ impl DownloadService {
 
         let mut normalized_posts = resumed_posts.clone();
         normalized_posts.reserve(all_raw_posts.len());
+        let mut last_checkpoint_at = Instant::now();
+        let mut posts_since_checkpoint = 0_usize;
+
         for (index, raw) in all_raw_posts.iter().enumerate() {
             self.ensure_not_cancelled(state, app)?;
 
@@ -437,11 +469,18 @@ impl DownloadService {
                 continue;
             }
 
+            // Skip reposts BEFORE making any long-text API calls
+            if matches!(request.filter, PostFilter::Original) && raw.retweeted_status.is_some() {
+                continue;
+            }
+
             let top_level_long_text = if needs_long_text(raw) {
                 match client.get_long_text(&raw.mblogid).await {
                     Ok(content) => Some(content),
-                    Err(e) => {
-                        eprintln!("[longtext] 顶层长文获取失败 mblogid={}: {}", raw.mblogid, e);
+                    Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+                    Err(_e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[longtext] 顶层长文获取失败 mblogid={}: {}", raw.mblogid, _e);
                         None
                     }
                 }
@@ -452,8 +491,10 @@ impl DownloadService {
             let retweeted_long_text = match raw.retweeted_status.as_deref() {
                 Some(retweeted) if needs_long_text(retweeted) => match client.get_long_text(&retweeted.mblogid).await {
                     Ok(content) => Some(content),
-                    Err(e) => {
-                        eprintln!("[longtext] 转发长文获取失败 mblogid={}: {}", retweeted.mblogid, e);
+                    Err(AppError::Cancelled) => return Err(AppError::Cancelled),
+                    Err(_e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[longtext] 转发长文获取失败 mblogid={}: {}", retweeted.mblogid, _e);
                         None
                     }
                 },
@@ -472,14 +513,8 @@ impl DownloadService {
             };
             let post = WeiboApiClient::<R>::normalize_post(&normalized_raw, uid_for_normalize);
 
-            match request.filter {
-                PostFilter::Original if post.is_repost => continue,
-                PostFilter::Original | PostFilter::All => {}
-            }
-
             // Filter by text length (only for profile mode, not favorites)
             if matches!(request.source_type, SourceType::Profile) && request.min_text_length > 0 {
-                // Count visible characters (excluding HTML tags and URLs)
                 let text_len = count_visible_chars(&post.text);
                 if text_len < request.min_text_length {
                     continue;
@@ -487,10 +522,11 @@ impl DownloadService {
             }
 
             normalized_posts.push(post);
+            posts_since_checkpoint += 1;
 
             state.posts_exported.store(normalized_posts.len(), Ordering::Relaxed);
 
-            if normalized_posts.len() % 10 == 0 {
+            if posts_since_checkpoint >= 50 || last_checkpoint_at.elapsed() >= Duration::from_secs(10) {
                 let _ = crate::services::cache::save_cache_checkpoint(
                     &normalized_posts,
                     &request.output_dir,
@@ -500,13 +536,17 @@ impl DownloadService {
                         last_page: last_fetched_page,
                         total_fetched: resumed_total_fetched + all_raw_posts.len(),
                         total_posts,
+                        filter: Some(request.filter.clone()),
+                        start_timestamp: request.date_range.start_timestamp,
+                        end_timestamp: request.date_range.end_timestamp,
                     },
                     &export_context,
                 )
                 .await;
+                last_checkpoint_at = Instant::now();
+                posts_since_checkpoint = 0;
             }
 
-            self.emit(app, ProgressPhase::FetchingLongText, 0, 1, "正在处理长文内容...");
             self.emit(
                 app,
                 ProgressPhase::FetchingLongText,
@@ -525,6 +565,9 @@ impl DownloadService {
                 last_page: last_fetched_page,
                 total_fetched: resumed_total_fetched + all_raw_posts.len(),
                 total_posts,
+                filter: Some(request.filter.clone()),
+                start_timestamp: request.date_range.start_timestamp,
+                end_timestamp: request.date_range.end_timestamp,
             },
             &export_context,
         )
@@ -558,7 +601,7 @@ impl DownloadService {
         self.emit(app, ProgressPhase::DownloadingImages, 0, 0, "正在下载图片...");
 
         let image_dir = PathBuf::from(&request.output_dir).join("images");
-        std::fs::create_dir_all(&image_dir)?;
+        tokio::fs::create_dir_all(&image_dir).await?;
 
         let total_images: usize = posts.iter().map(|post| post.images.len()).sum();
         if total_images == 0 {
@@ -566,54 +609,59 @@ impl DownloadService {
             return Ok(());
         }
 
-        let image_store = ImageStoreService::new();
-        let client = state.get_client();
-        let mut downloaded = 0_usize;
-
-        for post in posts.iter_mut() {
-            self.ensure_not_cancelled(state, app)?;
-
+        // Collect all unique (url, filename) download jobs across posts
+        let mut download_jobs: Vec<(String, String)> = Vec::with_capacity(total_images);
+        let mut seen_urls: HashSet<String> = HashSet::with_capacity(total_images);
+        for post in posts.iter() {
             let desired_filenames = dedupe_filenames(
                 &post
                     .images
                     .iter()
-                    .map(|image| post_filename(&post.created_at, &post.mblogid, &image_extension(&image.original_url)))
+                    .map(|image| {
+                        post_filename(
+                            &post.created_at,
+                            &post.mblogid,
+                            &image_extension(&image.original_url),
+                        )
+                    })
                     .collect::<Vec<_>>(),
             );
 
-            let urls: Vec<(String, String)> = post
-                .images
-                .iter()
-                .zip(desired_filenames.iter())
-                .map(|(image, filename)| (image.original_url.clone(), filename.clone()))
-                .collect();
-
-            let stored_paths = match image_store.download_images(&client, &urls, &image_dir).await {
-                Ok(paths) => paths,
-                Err(error) => {
-                    eprintln!("Failed to download images for post {}: {}", post.mblogid, error);
-                    Vec::new()
+            for (image, filename) in post.images.iter().zip(desired_filenames.into_iter()) {
+                if seen_urls.insert(image.original_url.clone()) {
+                    download_jobs.push((image.original_url.clone(), filename));
                 }
-            };
+            }
+        }
 
-            let stored_paths: HashMap<String, String> = stored_paths.into_iter().collect();
+        let total_unique = download_jobs.len();
+        let image_store = ImageStoreService::new();
+        let client = state.get_client();
+        let mut completed = 0_usize;
 
+        let stored_paths: HashMap<String, String> = image_store
+            .download_images_concurrent(&client, download_jobs, &image_dir, state, |_ok| {
+                completed += 1;
+                // Throttle UI progress events slightly for large galleries
+                if completed == total_unique || completed % 2 == 0 || total_unique <= 20 {
+                    self.emit(
+                        app,
+                        ProgressPhase::DownloadingImages,
+                        completed,
+                        total_unique,
+                        &format!("已下载 {}/{} 张图片...", completed, total_unique),
+                    );
+                }
+            })
+            .await?
+            .into_iter()
+            .collect();
+
+        for post in posts.iter_mut() {
             for image in post.images.iter_mut() {
                 image.local_path = stored_paths
                     .get(&image.original_url)
                     .map(|filename| format!("images/{filename}"));
-
-                if stored_paths.contains_key(&image.original_url) {
-                    downloaded += 1;
-                }
-
-                self.emit(
-                    app,
-                    ProgressPhase::DownloadingImages,
-                    downloaded,
-                    total_images,
-                    &format!("已下载 {}/{} 张图片...", downloaded, total_images),
-                );
             }
         }
 
@@ -722,10 +770,11 @@ mod tests {
 
     #[test]
     fn test_date_parsing_today() {
-        let ts = parse_weibo_date_to_timestamp("今天 10:00");
+        let ts = parse_weibo_date_to_timestamp("今天 00:00");
         assert!(ts > 0, "Should parse 'today' format");
         let now = Utc::now().timestamp();
-        assert!(ts <= now, "Should be in the past");
+        assert!(ts <= now, "Today 00:00 should not be in the future");
+        assert!(ts > now - 86400, "Today 00:00 should be within the last 24 hours");
     }
 
     #[test]

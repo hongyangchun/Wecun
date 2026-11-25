@@ -4,7 +4,10 @@ use tokio::fs;
 
 use crate::error::AppError;
 use crate::models::{ExportContext, WeiboPost};
-use crate::services::file_naming::{format_date_range_for_filename, obsidian_post_filename, unified_export_filename};
+use crate::services::file_naming::{
+    dedupe_filenames, format_date_range_for_filename, obsidian_post_filename,
+    unified_export_filename,
+};
 use crate::utils::html::html_to_markdown_rich;
 
 pub struct MarkdownExportService;
@@ -68,10 +71,15 @@ impl MarkdownExportService {
         };
         let mut index = format!("# {}\n\n", index_title);
 
-        for post in posts {
+        let raw_filenames: Vec<String> = posts
+            .iter()
+            .map(|post| obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md"))
+            .collect();
+        let unique_filenames = dedupe_filenames(&raw_filenames);
+
+        for (post, filename) in posts.iter().zip(unique_filenames.iter()) {
             let content = self.format_post(post, true);
-            let filename = obsidian_post_filename(&post.created_at, &extract_title_hint(post), "md");
-            let dest = posts_dir.join(&filename);
+            let dest = posts_dir.join(filename);
             fs::write(&dest, content).await.map_err(AppError::Io)?;
             index.push_str(&format!("- [{} — {}](./{})\n", post.author, post.created_at, filename));
         }
@@ -101,7 +109,25 @@ impl MarkdownExportService {
 
         if post.is_repost {
             if let Some(repost_user) = &post.repost_user {
-                md.push_str(&format!("> 转发自 @{}\n\n", repost_user));
+                md.push_str(&format!("> 转发自 @{}\n", repost_user));
+            }
+            if let Some(repost_text) = &post.repost_text {
+                let repost_md = html_to_markdown(repost_text);
+                if !repost_md.is_empty() {
+                    if post.repost_user.is_some() {
+                        md.push_str(">\n");
+                    }
+                    for line in repost_md.lines() {
+                        if line.trim().is_empty() {
+                            md.push_str(">\n");
+                        } else {
+                            md.push_str(&format!("> {}\n", line));
+                        }
+                    }
+                }
+            }
+            if post.repost_user.is_some() || post.repost_text.is_some() {
+                md.push('\n');
             }
         }
 
@@ -146,7 +172,7 @@ fn single_export_filename(posts: &[WeiboPost], export_context: &ExportContext) -
 }
 
 fn html_to_markdown(html: &str) -> String {
-    html_to_markdown_rich(&convert_links(html))
+    html_to_markdown_rich(html)
 }
 
 fn extract_title_hint(post: &WeiboPost) -> String {
@@ -182,55 +208,4 @@ fn frontmatter(post: &WeiboPost) -> String {
 
 fn yaml_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn convert_links(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut remaining = html;
-
-    while let Some(link_start) = remaining.find("<a ") {
-        result.push_str(&remaining[..link_start]);
-        remaining = &remaining[link_start..];
-
-        let Some(href_start) = remaining.find("href=") else {
-            result.push_str(remaining);
-            return result;
-        };
-        let after_href = &remaining[href_start + 5..];
-        let Some(quote) = after_href.chars().next() else {
-            result.push_str(remaining);
-            return result;
-        };
-        if quote != '"' && quote != '\'' {
-            result.push_str(remaining);
-            return result;
-        }
-
-        let after_quote = &after_href[1..];
-        let Some(url_end) = after_quote.find(quote) else {
-            result.push_str(remaining);
-            return result;
-        };
-        let href = &after_quote[..url_end];
-
-        let Some(tag_end) = remaining.find('>') else {
-            result.push_str(remaining);
-            return result;
-        };
-        let after_tag = &remaining[tag_end + 1..];
-        let Some(close_idx) = after_tag.find("</a>") else {
-            result.push_str(remaining);
-            return result;
-        };
-        let text = &after_tag[..close_idx];
-        result.push_str(&format!(
-            "[{}]({})",
-            crate::utils::html::strip_html_tags(text),
-            href
-        ));
-        remaining = &after_tag[close_idx + 4..];
-    }
-
-    result.push_str(remaining);
-    result
 }

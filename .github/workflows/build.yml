@@ -11,6 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test -- --run
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -115,28 +122,35 @@ jobs:
       - name: Rename artifacts with Wecun prefix
         shell: bash
         run: |
-          # Rename macOS files
-          for f in artifacts/macos/*.dmg; do
-            [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
-          done
-          for f in artifacts/macos/*.app.tar.gz; do
-            [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
-          done
-          for f in artifacts/macos/*.app.tar.gz.sig; do
-            [ -f "$f" ] && mv "$f" "artifacts/macos/Wecun_$(basename $f)"
-          done
-          # Rename Windows files
-          for f in artifacts/windows/*.exe; do
-            [ -f "$f" ] && mv "$f" "artifacts/windows/Wecun_$(basename $f)"
-          done
-          # Rename Linux files
-          for f in artifacts/linux/*.deb; do
-            [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
-          done
-          for f in artifacts/linux/*.AppImage; do
-            [ -f "$f" ] && mv "$f" "artifacts/linux/Wecun_$(basename $f)"
-          done
-          # List final artifact structure for debugging
+          rename_with_wecun() {
+            local f="$1"
+            [ -f "$f" ] || return 0
+            local dir base clean target
+            dir=$(dirname "$f")
+            base=$(basename "$f")
+            if [[ "$base" == *.app.tar.gz.sig ]]; then
+              target="Wecun.app.tar.gz.sig"
+            elif [[ "$base" == *.app.tar.gz ]]; then
+              target="Wecun.app.tar.gz"
+            else
+              clean="${base#微存}"
+              clean="${clean#Wecun}"
+              clean="${clean#wecun}"
+              clean="${clean#_}"
+              target="Wecun_${clean}"
+            fi
+            if [ "$base" != "$target" ]; then
+              mv "$f" "${dir}/${target}"
+            fi
+          }
+
+          for f in artifacts/macos/dmg/*.dmg; do rename_with_wecun "$f"; done
+          for f in artifacts/macos/macos/*.app.tar.gz; do rename_with_wecun "$f"; done
+          for f in artifacts/macos/macos/*.app.tar.gz.sig; do rename_with_wecun "$f"; done
+          for f in artifacts/windows/*.exe; do rename_with_wecun "$f"; done
+          for f in artifacts/linux/deb/*.deb; do rename_with_wecun "$f"; done
+          for f in artifacts/linux/appimage/*.AppImage; do rename_with_wecun "$f"; done
+
           echo "=== Final artifact structure ==="
           find artifacts -type f | sort
 

@@ -48,6 +48,18 @@
 }
 
 @layer components {
+  .card {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 0;
+    transition: all 0.2s ease;
+  }
+
+  .card:hover {
+    background-color: transparent;
+  }
+
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -56,13 +68,12 @@
     background-color: var(--color-accent);
     color: var(--color-bg);
     font-weight: 600;
-    border-radius: 6px;
-    transition: all 0.2s ease;
+    border-radius: 8px;
+    transition: border-color 0.2s ease;
   }
 
   .btn-primary:hover {
-    background-color: #34e9bf;
-    transform: translateY(-1px);
+    border-color: #34e9bf;
   }
 
   .btn-secondary {
@@ -74,26 +85,12 @@
     color: var(--color-text);
     border: 1px solid var(--color-border);
     font-weight: 500;
-    border-radius: 6px;
+    border-radius: 8px;
     transition: all 0.2s ease;
   }
 
   .btn-secondary:hover {
     border-color: var(--color-text-muted);
-    background-color: var(--color-surface);
-  }
-
-  .card {
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    padding: 2rem;
-    transition: all 0.3s ease;
-  }
-
-  .card:hover {
-    border-color: var(--color-accent);
-    background-color: var(--color-surface-hover);
   }
 
   .mono {

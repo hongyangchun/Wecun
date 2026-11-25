@@ -49,32 +49,32 @@ impl<R: Runtime> WeiboApiClient<R> {
         }
     }
 
-    async fn throttle(&self) {
-        let mut guard = self.last_fetch.lock().await;
-        if let Some(last) = *guard {
-            let elapsed = last.elapsed();
-            if elapsed < MIN_REQUEST_INTERVAL {
-                tokio::time::sleep(MIN_REQUEST_INTERVAL - elapsed).await;
+    async fn throttle(&self) -> Result<(), AppError> {
+        let sleep_duration = {
+            let mut guard = self.last_fetch.lock().await;
+            let wait = guard.and_then(|last| {
+                let elapsed = last.elapsed();
+                (elapsed < MIN_REQUEST_INTERVAL).then_some(MIN_REQUEST_INTERVAL - elapsed)
+            });
+            if wait.is_none() {
+                *guard = Some(Instant::now());
             }
+            wait
+        };
+
+        if let Some(duration) = sleep_duration {
+            let state = self.app.state::<AppState>();
+            if state.sleep_cancellable(duration).await {
+                return Err(AppError::Cancelled);
+            }
+            let mut guard = self.last_fetch.lock().await;
+            *guard = Some(Instant::now());
         }
-        *guard = Some(Instant::now());
+
+        Ok(())
     }
 
-    async fn get_json<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-        query: &[(&str, String)],
-    ) -> Result<T, AppError> {
-        self.throttle().await;
-
-        let state = self.app.state::<AppState>();
-        let cookie = state.get_cookie();
-        if cookie.is_empty() {
-            return Err(AppError::ApiError("请先登录".to_string()));
-        }
-
-        let client = state.get_client();
-
+    fn build_url(path: &str, query: &[(&str, String)]) -> String {
         let mut url = format!("{WEIBO_BASE}{path}");
         if !query.is_empty() {
             let params: Vec<String> = query
@@ -84,6 +84,24 @@ impl<R: Runtime> WeiboApiClient<R> {
             url.push('?');
             url.push_str(&params.join("&"));
         }
+        url
+    }
+
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<T, AppError> {
+        self.throttle().await?;
+
+        let state = self.app.state::<AppState>();
+        let cookie = state.get_cookie();
+        if cookie.is_empty() {
+            return Err(AppError::ApiError("请先登录".to_string()));
+        }
+
+        let client = state.get_client();
+        let url = Self::build_url(path, query);
 
         let (status, text) = self
             .request_with_retry(path, progress_phase_for_path(path), || {
@@ -99,19 +117,24 @@ impl<R: Runtime> WeiboApiClient<R> {
             let last_set = state.get_last_cookie_set_time();
             let elapsed = last_set.map(|t| t.elapsed());
             let grace_period = Duration::from_secs(10);
-            let should_suppress_error = elapsed
-                .and_then(|e| Some(e < grace_period))
-                .unwrap_or(false);
+            let should_suppress_error = elapsed.is_some_and(|e| e < grace_period);
 
             if should_suppress_error {
                 // Cookie was just set, likely due to account switching. Return error but don't clear state.
                 let remaining = grace_period.saturating_sub(elapsed.unwrap_or_default());
-                return Err(AppError::ApiError(format!("正在切换账号，请等待 {:.0} 秒后重试", remaining.as_secs_f64())));
+                return Err(AppError::ApiError(format!(
+                    "正在切换账号，请等待 {:.0} 秒后重试",
+                    remaining.as_secs_f64()
+                )));
             }
 
-            // Log debug info
-            eprintln!("[DEBUG] Auth failure - Status: {}, Path: {}, Body preview: {}",
-                status, path, &text[..text.len().min(200)]);
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[DEBUG] Auth failure - Status: {}, Path: {}, Body preview: {}",
+                status,
+                path,
+                &text[..text.len().min(200)]
+            );
 
             state.set_cookie(String::new());
             clear_saved_cookie(&self.app);
@@ -137,7 +160,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         query: &[(&str, String)],
         cookie: &str,
     ) -> Result<T, AppError> {
-        self.throttle().await;
+        self.throttle().await?;
 
         if cookie.is_empty() {
             return Err(AppError::ApiError("请先登录".to_string()));
@@ -145,16 +168,7 @@ impl<R: Runtime> WeiboApiClient<R> {
 
         let state = self.app.state::<AppState>();
         let client = state.get_client();
-
-        let mut url = format!("{WEIBO_BASE}{path}");
-        if !query.is_empty() {
-            let params: Vec<String> = query
-                .iter()
-                .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
-                .collect();
-            url.push('?');
-            url.push_str(&params.join("&"));
-        }
+        let url = Self::build_url(path, query);
 
         let cookie_owned = cookie.to_string();
         let (status, text) = self
@@ -189,9 +203,14 @@ impl<R: Runtime> WeiboApiClient<R> {
         Fut: Future<Output = Result<(StatusCode, String), AppError>>,
     {
         let retry_config = RetryConfig::default();
+        let state = self.app.state::<AppState>();
         let mut attempt = 0;
 
         loop {
+            if state.is_cancelled() {
+                return Err(AppError::Cancelled);
+            }
+
             match request_fn().await {
                 Ok((status, text)) => {
                     if is_auth_invalid_response(status, &text) || !is_retryable_status(status) {
@@ -215,7 +234,9 @@ impl<R: Runtime> WeiboApiClient<R> {
                         ),
                     );
 
-                    tokio::time::sleep(retry_delay(&retry_config, attempt)).await;
+                    if state.sleep_cancellable(retry_delay(&retry_config, attempt)).await {
+                        return Err(AppError::Cancelled);
+                    }
                 }
                 Err(error) => {
                     if !is_network_error(&error) {
@@ -238,7 +259,9 @@ impl<R: Runtime> WeiboApiClient<R> {
                         ),
                     );
 
-                    tokio::time::sleep(retry_delay(&retry_config, attempt)).await;
+                    if state.sleep_cancellable(retry_delay(&retry_config, attempt)).await {
+                        return Err(AppError::Cancelled);
+                    }
                 }
             }
         }
@@ -418,6 +441,7 @@ impl<R: Runtime> WeiboApiClient<R> {
         let list = raw.data.list.unwrap_or_default();
         let total = raw.data.total.unwrap_or(0);
 
+        #[cfg(debug_assertions)]
         eprintln!("[DEBUG] fetch_posts_page: page={}, returned {} posts, total={}", page, list.len(), total);
 
         Ok((list, total))
@@ -474,6 +498,11 @@ impl<R: Runtime> WeiboApiClient<R> {
             .as_ref()
             .and_then(|r| r.user.as_ref())
             .map(|u| u.screen_name.clone());
+        let repost_text = raw
+            .retweeted_status
+            .as_ref()
+            .map(|r| r.text.clone())
+            .filter(|t| !t.trim().is_empty());
 
         let region = raw.region_name.clone();
         let images = Self::parse_images(&raw.pic_infos);
@@ -492,6 +521,7 @@ impl<R: Runtime> WeiboApiClient<R> {
             images,
             is_repost,
             repost_user,
+            repost_text,
             region,
             source_url,
             author,
@@ -743,9 +773,22 @@ pub fn save_cookie<R: Runtime>(app: &AppHandle<R>, cookie: &str) {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let data = CookieData { cookie: cookie.to_string() };
+    let data = CookieData {
+        cookie: cookie.to_string(),
+    };
     if let Ok(content) = serde_json::to_string_pretty(&data) {
-        let _ = fs::write(path, content);
+        let tmp_path = path.with_extension("json.tmp");
+        if fs::write(&tmp_path, &content).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600));
+            }
+            if fs::rename(&tmp_path, &path).is_err() {
+                let _ = fs::remove_file(&path);
+                let _ = fs::rename(&tmp_path, &path);
+            }
+        }
     }
 }
 
@@ -845,19 +888,15 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
                         if !cookie_string.is_empty() {
                             let full_cookie = cookie_string.join("; ");
 
-                            // Debug: log what cookies we captured
+                            #[cfg(debug_assertions)]
                             eprintln!("[DEBUG] Captured {} cookies", cookie_string.len());
-                            for c in &cookie_string {
-                                if c.contains("SUB") || c.contains("ALF") || c.contains("SUBP") {
-                                    eprintln!("[DEBUG] Key cookie: {}...", &c[..c.len().min(30)]);
-                                }
-                            }
 
                             let state = app.state::<AppState>();
                             state.set_cookie(full_cookie.clone());
                             save_cookie(&app, &full_cookie);
                             let _ = app.emit("cookie-received", full_cookie);
                         } else {
+                            #[cfg(debug_assertions)]
                             eprintln!("[DEBUG] No cookies captured after login!");
                         }
                     }

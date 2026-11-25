@@ -16,6 +16,17 @@ pub async fn save_posts_cache(posts: &[WeiboPost], output_dir: &str) -> Result<(
     save_cache_bundle(posts, output_dir, ExportContext::default()).await
 }
 
+async fn write_atomic(path: &Path, content: &str) -> Result<(), AppError> {
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, content).await.map_err(AppError::Io)?;
+    if let Err(err) = fs::rename(&tmp_path, path).await {
+        // Fallback on platforms where rename over an existing file can fail
+        let _ = fs::remove_file(path).await;
+        fs::rename(&tmp_path, path).await.map_err(|_| AppError::Io(err))?;
+    }
+    Ok(())
+}
+
 pub async fn save_cache_bundle(
     posts: &[WeiboPost],
     output_dir: &str,
@@ -30,8 +41,7 @@ pub async fn save_cache_bundle(
     })
     .map_err(|e| AppError::Parse(e.to_string()))?;
     let path = dir.join(CACHE_FILE_NAME);
-    fs::write(&path, json).await.map_err(AppError::Io)?;
-    Ok(())
+    write_atomic(&path, &json).await
 }
 
 pub async fn save_cache_checkpoint(
@@ -49,8 +59,7 @@ pub async fn save_cache_checkpoint(
     })
     .map_err(|e| AppError::Parse(e.to_string()))?;
     let path = dir.join(CACHE_FILE_NAME);
-    fs::write(&path, json).await.map_err(AppError::Io)?;
-    Ok(())
+    write_atomic(&path, &json).await
 }
 
 pub fn load_posts_cache_sync(output_dir: &str) -> Result<Vec<WeiboPost>, AppError> {
@@ -105,6 +114,7 @@ mod tests {
             }],
             is_repost: false,
             repost_user: None,
+            repost_text: None,
             region: Some("发布于 北京".to_string()),
             source_url: format!("https://weibo.com/123/{id}"),
             author: "测试用户".to_string(),
@@ -178,6 +188,9 @@ mod tests {
                 last_page: 3,
                 total_fetched: 42,
                 total_posts: 99,
+                filter: None,
+                start_timestamp: None,
+                end_timestamp: None,
             },
             &ExportContext {
                 date_range_label: "2024-01-01至2024-01-31".to_string(),

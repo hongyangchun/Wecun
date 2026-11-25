@@ -174,7 +174,7 @@ fn posting_frequency(
 }
 
 fn parse_post_datetime(created_at: &str) -> Option<DateTime<FixedOffset>> {
-    DateTime::parse_from_str(created_at, "%a %b %e %H:%M:%S %z %Y").ok()
+    crate::services::downloader::parse_weibo_datetime(created_at)
 }
 
 fn detect_active_hours(hourly_distribution: &[usize]) -> ActiveHours {

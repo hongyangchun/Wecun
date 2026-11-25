@@ -223,6 +223,16 @@ describe("wizardReducer", () => {
     expect(next.logs).toEqual(["旧日志", "新增日志"]);
   });
 
+  it("caps logs length to prevent unbounded growth", () => {
+    let state = INITIAL_STATE;
+    for (let i = 1; i <= 250; i += 1) {
+      state = reduce({ type: "ADD_LOG", message: `log-${i}` }, state);
+    }
+    expect(state.logs.length).toBe(200);
+    expect(state.logs[0]).toBe("log-51");
+    expect(state.logs[state.logs.length - 1]).toBe("log-250");
+  });
+
   it("handles RESET while preserving auth state", () => {
     const next = reduce(
       { type: "RESET" },

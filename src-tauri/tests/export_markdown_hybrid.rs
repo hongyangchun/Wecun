@@ -28,6 +28,7 @@ fn linked_post() -> WeiboPost {
         }],
         is_repost: false,
         repost_user: None,
+        repost_text: None,
         region: Some("发布于 北京".to_string()),
         source_url: "https://weibo.com/123/Olinked123".to_string(),
         author: "测试用户".to_string(),
@@ -43,6 +44,7 @@ fn rich_html_post() -> WeiboPost {
         images: vec![],
         is_repost: false,
         repost_user: None,
+        repost_text: None,
         region: None,
         source_url: "https://weibo.com/123/Orich123".to_string(),
         author: "测试用户".to_string(),
@@ -230,4 +232,63 @@ async fn per_post_export_uses_time_and_text_filename() {
 
     let file_name = post_file.file_name().and_then(|name| name.to_str()).unwrap();
     assert!(file_name.starts_with("2024-01-15-正文前半段"));
+}
+
+#[tokio::test]
+async fn per_post_export_dedupes_colliding_filenames() {
+    let dir = temp_dir("dedupe-filenames");
+    let svc = MarkdownExportService::new();
+    let mut post1 = linked_post();
+    post1.mblogid = "Odup1".to_string();
+    post1.text = "<p>转发微博</p>".to_string();
+    let mut post2 = linked_post();
+    post2.mblogid = "Odup2".to_string();
+    post2.text = "<p>转发微博</p>".to_string();
+
+    svc.export_per_post(
+        &[post1, post2],
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let md_files: Vec<_> = std::fs::read_dir(dir.join("obsidian"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .filter(|name| name.ends_with(".md") && name != "index.md")
+        .collect();
+
+    assert_eq!(md_files.len(), 2, "colliding titles on same day should not overwrite each other");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn markdown_export_renders_repost_text() {
+    let dir = temp_dir("repost-text");
+    let svc = MarkdownExportService::new();
+    let mut post = linked_post();
+    post.is_repost = true;
+    post.repost_user = Some("原作者".to_string());
+    post.repost_text = Some("<p>被转发的原微博正文</p>".to_string());
+
+    svc.export_single(
+        &[post],
+        &dir,
+        &ExportContext {
+            date_range_label: "2024-01-01至2024-01-31".to_string(),
+            type_label: "微博备份".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let rendered = std::fs::read_to_string(single_export_path(&dir)).unwrap();
+    assert!(rendered.contains("> 转发自 @原作者"));
+    assert!(rendered.contains("> 被转发的原微博正文"));
+    std::fs::remove_dir_all(&dir).ok();
 }

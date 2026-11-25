@@ -102,6 +102,13 @@ export type WizardAction =
   | { type: "ADD_LOG"; message: string }
   | { type: "RESET" };
 
+const MAX_LOGS = 200;
+
+function appendLog(logs: string[], message: string): string[] {
+  const next = [...logs, message];
+  return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
+}
+
 const PHASE_TEXT: Record<ProgressPhase, string> = {
   FetchingUserInfo: "正在获取用户信息",
   FetchingPostList: "正在获取微博列表",
@@ -231,7 +238,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
           phase: phaseLabel,
           current: c,
           total: t,
-          logs: [...state.logs, message],
+          logs: appendLog(state.logs, message),
         };
       }
 
@@ -240,7 +247,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
           ...state,
           processStatus: "cancelled",
           phase: phaseLabel,
-          logs: [...state.logs, message],
+          logs: appendLog(state.logs, message),
         };
       }
 
@@ -250,7 +257,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
           processStatus: "error",
           errorMessage: message,
           phase: phaseLabel,
-          logs: [...state.logs, message],
+          logs: appendLog(state.logs, message),
         };
       }
 
@@ -261,7 +268,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         phase: p === "FetchingPostList" ? message : phaseLabel,
         current: c,
         total: t,
-        logs: [...state.logs, message],
+        logs: appendLog(state.logs, message),
       };
     }
 
@@ -270,7 +277,7 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         ...state,
         processStatus: "exporting",
         phase: "正在导出...",
-        logs: [...state.logs, "正在导出..."],
+        logs: appendLog(state.logs, "正在导出..."),
       };
 
     case "DOWNLOAD_COMPLETE":
@@ -304,10 +311,10 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       };
 
     case "ADD_LOG":
-      return { ...state, logs: [...state.logs, action.message] };
+      return { ...state, logs: appendLog(state.logs, action.message) };
 
     case "RESET":
-      return { ...INITIAL_STATE, isLoggedIn: state.isLoggedIn, cookie: state.cookie };
+      return { ...INITIAL_STATE, isLoggedIn: state.isLoggedIn, cookie: state.cookie, username: state.username };
 
     default:
       return state;

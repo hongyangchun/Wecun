@@ -38,6 +38,7 @@ interface StepProcessingProps {
   progress: number;
   current: number;
   total: number;
+  errorMessage?: string;
   logs: string[];
   onStop: () => void;
   onReset: () => void;
@@ -57,6 +58,7 @@ const StepProcessingComponent = ({
   progress,
   current,
   total,
+  errorMessage,
   logs,
   onStop,
   onReset,
@@ -302,30 +304,44 @@ const StepProcessingComponent = ({
           </div>
         )}
 
-        {processStatus === "error" && (
-          <div className="step-enter">
-            <div className="processing-header">
-              <span className="processing-icon processing-icon--danger">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M4 4L12 12M12 4L4 12" stroke="var(--color-danger)" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </span>
-              <h2 className="processing-title">下载出错</h2>
-            </div>
+        {processStatus === "error" && (() => {
+          const isAuthError = !errorMessage || /登录已失效|登录已过期|请先登录|请重新登录/.test(errorMessage);
+          return (
+            <div className="step-enter">
+              <div className="processing-header">
+                <span className="processing-icon processing-icon--danger">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M4 4L12 12M12 4L4 12" stroke="var(--color-danger)" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <h2 className="processing-title">处理出错</h2>
+              </div>
 
-            <div className="error-box" style={{ marginBottom: 20 }}>
-              登录已过期，请重新登录
-            </div>
+              <div className="error-box" style={{ marginBottom: 20 }}>
+                {errorMessage || "登录已过期，请重新登录"}
+              </div>
 
-            {renderLog()}
+              {renderLog()}
 
-            <div style={{ marginTop: 16 }}>
-              <button className="btn btn-primary" style={{ width: "100%" }} onClick={onGoToLogin} type="button">
-                重新登录
-              </button>
+              <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+                {isAuthError ? (
+                  <>
+                    <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onReset} type="button">
+                      返回
+                    </button>
+                    <button className="btn btn-primary" style={{ flex: 1 }} onClick={onGoToLogin} type="button">
+                      重新登录
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn btn-primary" style={{ width: "100%" }} onClick={onReset} type="button">
+                    返回
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {processStatus === "cancelled" && (
           <div className="step-enter">

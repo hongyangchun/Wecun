@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileResult {
+    #[serde(default)]
+    pub author_name: Option<String>,
     pub basic_stats: BasicStats,
     pub content_analysis: ContentAnalysis,
     pub influence_metrics: InfluenceMetrics,

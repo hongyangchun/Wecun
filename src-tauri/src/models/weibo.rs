@@ -122,6 +122,8 @@ pub struct WeiboPost {
     pub images: Vec<WeiboImage>,
     pub is_repost: bool,
     pub repost_user: Option<String>,
+    #[serde(default)]
+    pub repost_text: Option<String>,
     pub region: Option<String>,
     pub source_url: String,
     pub author: String,
