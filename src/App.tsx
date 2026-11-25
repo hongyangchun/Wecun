@@ -871,6 +871,7 @@ function AppShell() {
                 authorName={profileAuthorName || resolvedAuthor?.screenName || extractUidFromUrl(state.profileUrl) || "博主"}
                 onExportOpenclaw={handleExportOpenclaw}
                 onClose={handleCloseProfile}
+                onAnalyze={() => void handleAnalyze()}
               />
             </div>
           </div>

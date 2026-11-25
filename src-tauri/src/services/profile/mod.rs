@@ -1,6 +1,9 @@
+pub mod ai_key;
 pub mod glm_client;
 pub mod local_analyzer;
 pub mod models;
+
+use tauri::{AppHandle, Runtime};
 
 use crate::error::AppError;
 use crate::services::cache;
@@ -15,8 +18,11 @@ impl ProfileService {
         Self
     }
 
-    /// Run the full profile analysis pipeline: local stats + optional AI deep analysis.
-    pub async fn analyze(&self, output_dir: &str) -> Result<ProfileResult, AppError> {
+    /// Local statistics over the saved posts, plus the AI deep profile when the user has set a key.
+    ///
+    /// A failed AI call does not fail the analysis: the report shows the local statistics and says
+    /// what is missing and why.
+    pub async fn analyze<R: Runtime>(&self, output_dir: &str, app: &AppHandle<R>) -> Result<ProfileResult, AppError> {
         let bundle = cache::load_cache_bundle(output_dir).await?;
         let posts = &bundle.posts;
 
@@ -24,20 +30,18 @@ impl ProfileService {
             return Err(AppError::ApiError("没有可分析的微博数据".to_string()));
         }
 
-        // Step 1: Local analysis
         let local_stats = local_analyzer::LocalAnalyzer::analyze(posts);
-        let glm_client = GlmClient::new();
-        let deep_profile = if glm_client.is_configured() {
-            match glm_client.analyze(posts).await {
-                Ok(profile) => Some(profile),
-                // The report still shows the local statistics; the log says why the AI part is missing.
+        let api_key = ai_key::read(app);
+        let ai_configured = api_key.is_some();
+        let (deep_profile, ai_error) = match api_key {
+            Some(key) => match GlmClient::new(key).analyze(posts).await {
+                Ok(profile) => (Some(profile), None),
                 Err(error) => {
                     log::warn!("AI profile analysis failed: {error}");
-                    None
+                    (None, Some(error))
                 }
-            }
-        } else {
-            None
+            },
+            None => (None, None),
         };
 
         let author_name = posts
@@ -52,6 +56,8 @@ impl ProfileService {
             content_analysis: local_stats.content_analysis,
             influence_metrics: local_stats.influence_metrics,
             deep_profile,
+            ai_configured,
+            ai_error,
         })
     }
 }

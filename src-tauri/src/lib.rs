@@ -12,6 +12,7 @@ use commands::{
     get_log_dir, get_saved_cookie, get_saved_session, has_saved_cookie, load_saved_cookie_cmd, lookup_user_info,
     inspect_backup, open_login_window, set_cookie_cmd, start_download,
 };
+use commands::{clear_ai_key, get_ai_key_status, set_ai_key};
 use state::AppState;
 
 /// Runs before an aborted panic takes the process down, so the log file says why the app vanished.
@@ -79,6 +80,9 @@ pub fn run() {
             set_cookie_cmd,
             get_log_dir,
             inspect_backup,
+            get_ai_key_status,
+            set_ai_key,
+            clear_ai_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

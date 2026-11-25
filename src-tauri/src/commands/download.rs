@@ -118,11 +118,11 @@ pub async fn export_posts(
 #[tauri::command]
 pub async fn analyze_profile(
     output_dir: String,
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
 ) -> Result<ProfileResult, String> {
     let service = ProfileService::new();
     service
-        .analyze(&output_dir)
+        .analyze(&output_dir, &app)
         .await
         .map_err(|error| format!("分析失败: {error}"))
 }

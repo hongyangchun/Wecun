@@ -10,7 +10,6 @@ use super::models::*;
 
 const API_URL: &str = "https://api.deepseek.com/chat/completions";
 const MODEL: &str = "deepseek-chat";
-const API_KEY_FILE: &str = ".ai-api-key";
 const MAX_SAMPLE_POSTS: usize = 200;
 const MAX_CONTENT_CHARS: usize = 40_000;
 const SYSTEM_PROMPT: &str = r#"你是一名擅长做社交媒体人物画像的分析师，擅长发现有趣、细腻、让人会心一笑的洞察。你会根据微博样本输出一个严格合法的 JSON 对象，字段必须完整且与下面结构完全一致，字段名必须使用 camelCase，不要输出 Markdown、解释或代码块。
@@ -121,18 +120,14 @@ pub struct GlmClient {
 }
 
 impl GlmClient {
-    pub fn new() -> Self {
-        let api_key = load_api_key();
+    /// `api_key` is the user's DeepSeek key. Without one there is no AI analysis.
+    pub fn new(api_key: String) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(90))
             .build()
             .unwrap_or_else(|_| Client::new());
 
         Self { client, api_key }
-    }
-
-    pub fn is_configured(&self) -> bool {
-        !self.api_key.trim().is_empty()
     }
 
     pub async fn analyze(&self, posts: &[WeiboPost]) -> Result<DeepProfile, String> {
@@ -192,6 +187,9 @@ impl GlmClient {
                 },
             ],
             temperature: 0.3,
+            response_format: JsonMode {
+                kind: "json_object".to_string(),
+            },
         };
 
         let response = self
@@ -226,29 +224,6 @@ impl GlmClient {
     }
 }
 
-fn load_api_key() -> String {
-    // 环境变量优先（开发调试用）
-    if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
-        return key;
-    }
-
-    // 尝试从可执行文件目录读取（允许用户覆盖）
-    let exe_dir = std::env::current_exe().unwrap_or_default();
-    let config_path = exe_dir.parent().map(|p| p.join(API_KEY_FILE));
-
-    if let Some(path) = config_path {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            let key = content.trim().to_string();
-            if !key.is_empty() {
-                return key;
-            }
-        }
-    }
-
-    // 未配置 Key 时返回空字符串，仅输出本地统计画像
-    String::new()
-}
-
 fn format_post_date(created_at: &str) -> String {
     chrono::DateTime::parse_from_str(created_at, "%a %b %e %H:%M:%S %z %Y")
         .map(|date_time| date_time.format("%Y-%m-%d").to_string())
@@ -273,6 +248,14 @@ struct GlmRequest {
     model: String,
     messages: Vec<GlmMessage>,
     temperature: f32,
+    /// Asks for a JSON object straight away, instead of JSON inside a Markdown code block.
+    response_format: JsonMode,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonMode {
+    #[serde(rename = "type")]
+    kind: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

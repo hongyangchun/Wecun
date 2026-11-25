@@ -5,6 +5,9 @@ import type { UpdateProgressEvent } from "../lib/tauri-bridge";
 
 vi.mock("../lib/tauri-bridge", () => ({
   startDownload: vi.fn(),
+  getAiKeyStatus: vi.fn().mockResolvedValue(false),
+  setAiKey: vi.fn(),
+  clearAiKey: vi.fn(),
   cancelDownload: vi.fn(),
   exportPosts: vi.fn(),
   openOutputDir: vi.fn(),
