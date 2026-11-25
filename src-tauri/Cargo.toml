@@ -1,6 +1,6 @@
 [package]
 name = "wecun"
-version = "1.0.2"
+version = "1.0.3"
 description = "Wecun - 微博备份工具"
 authors = ["hongyangchun"]
 edition = "2021"

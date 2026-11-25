@@ -858,6 +858,109 @@ mod tests {
     }
 }
 
+const WEIBO_QR_ONLY_SCRIPT: &str = r#"
+(function () {
+  if (
+    window.location.hostname !== 'passport.weibo.com' ||
+    !window.location.pathname.includes('/sso/signin')
+  ) {
+    return;
+  }
+
+  const STYLE_ID = '__wecun_qr_only_style';
+  let qrOpened = false;
+
+  function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+      html.__wecun_qr_loading #app { opacity: 0 !important; pointer-events: none !important; }
+      div:has(> img[src*="h5_fanhui"]) { display: none !important; }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  document.documentElement.classList.add('__wecun_qr_loading');
+
+  function reveal() {
+    document.documentElement.classList.remove('__wecun_qr_loading');
+  }
+
+  function hideBackButtons() {
+    document.querySelectorAll('img[src*="h5_fanhui"]').forEach((img) => {
+      if (img.parentElement) img.parentElement.style.display = 'none';
+    });
+    document.querySelectorAll('div, span, button, a').forEach((el) => {
+      if (el.children.length <= 1 && (el.textContent || '').trim() === '返回') {
+        el.style.display = 'none';
+      }
+    });
+  }
+
+  function isQrVisible() {
+    const bodyText = document.body ? document.body.textContent || '' : '';
+    return (
+      bodyText.includes('打开微博手机APP') ||
+      !!document.querySelector('[class*="z-9999"]')
+    );
+  }
+
+  function tryOpenQr() {
+    ensureStyle();
+    hideBackButtons();
+
+    if (isQrVisible()) {
+      qrOpened = true;
+      reveal();
+      return true;
+    }
+
+    const scanImg = document.querySelector('img[src*="scan.png"]');
+    if (scanImg && scanImg.parentElement) {
+      scanImg.parentElement.click();
+      return false;
+    }
+
+    const candidates = document.querySelectorAll('span, button, a, div');
+    for (const el of candidates) {
+      if (el.children.length <= 1 && (el.textContent || '').trim() === '扫码登录') {
+        el.click();
+        return false;
+      }
+    }
+    return false;
+  }
+
+  function start() {
+    ensureStyle();
+    tryOpenQr();
+    const observer = new MutationObserver(() => {
+      tryOpenQr();
+    });
+    if (document.documentElement) {
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    const timer = setInterval(() => {
+      tryOpenQr();
+      if (qrOpened) {
+        clearInterval(timer);
+      }
+    }, 100);
+    setTimeout(() => {
+      reveal();
+      clearInterval(timer);
+    }, 5000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
+})();
+"#;
+
 pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
     // Close any existing login window first to avoid conflicts when switching accounts
     if let Some(existing_win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
@@ -873,10 +976,11 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
         LOGIN_WINDOW_LABEL,
         WebviewUrl::External("https://passport.weibo.com/sso/signin?entry=miniblog".parse().unwrap()),
     )
-    .title("登录微博")
-    .inner_size(480.0, 560.0)
+    .title("微博扫码登录")
+    .inner_size(420.0, 520.0)
     .resizable(false)
     .center()
+    .initialization_script(WEIBO_QR_ONLY_SCRIPT)
     .on_navigation(move |url: &Url| {
         let url_str = url.as_str();
         // When redirected to weibo.com (after successful QR scan), hide window immediately

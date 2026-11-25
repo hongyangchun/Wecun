@@ -61,9 +61,9 @@ export default function StepLogin({ isLoggedIn, isLoggingIn, username, usernameF
           <path d="M3 14C3 11.24 5.24 9 8 9C10.76 9 13 11.24 13 14" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </div>
-      <h2 className="processing-title">登录微博账号</h2>
+      <h2 className="processing-title">微博扫码登录</h2>
       <p className="form-hint" style={{ textAlign: "center", maxWidth: 260 }}>
-        登录后即可下载目标博主的全部微博
+        使用微博手机 App 扫一扫登录，安全便捷
       </p>
 
       <button
@@ -73,7 +73,7 @@ export default function StepLogin({ isLoggedIn, isLoggingIn, username, usernameF
         disabled={isOpening || isLoggingIn}
         type="button"
       >
-        {isLoggingIn ? "登录中，请在窗口中扫码..." : isOpening ? "正在打开..." : "打开登录页面"}
+        {isLoggingIn ? "等待扫码登录..." : isOpening ? "正在打开..." : "打开微博扫码登录"}
       </button>
 
       <div style={{ marginTop: 24, padding: "12px", background: "var(--color-bg-inset)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)", textAlign: "left" }}>

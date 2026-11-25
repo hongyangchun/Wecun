@@ -106,4 +106,15 @@ describe("App updater flow", () => {
       expect(relaunchAppMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("supports manual update check and shows up-to-date toast", async () => {
+    checkForAppUpdateMock.mockResolvedValue(null);
+
+    render(<App />);
+
+    const checkBtn = await screen.findByRole("button", { name: "检查更新" });
+    fireEvent.click(checkBtn);
+
+    expect(await screen.findByText("已是最新版本")).toBeTruthy();
+  });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import StepIndicator from "./components/StepIndicator";
 import StepLogin from "./components/StepLogin";
 import StepTarget from "./components/StepTarget";
@@ -26,7 +26,7 @@ import "./App.css";
 
 const STEPS = ["登录", "目标", "选项", "保存"];
 
-type UpdateToastStatus = "hidden" | "available" | "downloading" | "installing" | "error";
+type UpdateToastStatus = "hidden" | "available" | "downloading" | "installing" | "up-to-date" | "error";
 
 interface UpdateToastState {
   status: UpdateToastStatus;
@@ -140,7 +140,9 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
       ? "正在下载更新…"
       : state.status === "installing"
         ? "正在安装更新…"
-        : "更新失败";
+        : state.status === "up-to-date"
+          ? "已是最新版本"
+          : "更新失败";
 
   const details = state.status === "available"
     ? state.notes || "新版本已可用，可立即下载并安装。"
@@ -148,7 +150,9 @@ function UpdateToast({ state, prefersReducedMotion, onInstall, onDismiss }: Upda
       ? `${formatBytes(state.downloadedBytes)} / ${state.totalBytes > 0 ? formatBytes(state.totalBytes) : "未知大小"}`
       : state.status === "installing"
         ? "下载完成，正在应用更新…"
-        : state.errorMessage;
+        : state.status === "up-to-date"
+          ? "当前已经是最新的微存版本。"
+          : state.errorMessage;
 
   return (
     <div
@@ -208,6 +212,9 @@ function AppShell() {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
   const [updateToast, setUpdateToast] = useState<UpdateToastState>(INITIAL_UPDATE_TOAST);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const checkingUpdateRef = useRef(false);
+  const lastUpdateCheckRef = useRef(0);
   const prefersReducedMotion = usePrefersReducedMotion();
   const [profileResult, setProfileResult] = useState<ProfileResult | null>(null);
   const [profileAuthorName, setProfileAuthorName] = useState<string | null>(null);
@@ -362,6 +369,50 @@ function AppShell() {
     setAvailableUpdate(null);
   }, []);
 
+  const runUpdateCheck = useCallback(async (manual: boolean) => {
+    if (checkingUpdateRef.current) return;
+    checkingUpdateRef.current = true;
+    lastUpdateCheckRef.current = Date.now();
+    if (manual) {
+      setIsCheckingUpdate(true);
+    }
+
+    try {
+      const update = await checkForAppUpdate();
+      if (update) {
+        setAvailableUpdate(update);
+        setUpdateToast({
+          status: "available",
+          version: update.version,
+          notes: update.body?.trim() ?? "",
+          downloadedBytes: 0,
+          totalBytes: 0,
+          chunkCount: 0,
+          errorMessage: "",
+        });
+      } else if (manual) {
+        setUpdateToast({
+          ...INITIAL_UPDATE_TOAST,
+          status: "up-to-date",
+        });
+      }
+    } catch (err: unknown) {
+      if (manual) {
+        const message = err instanceof Error ? err.message : String(err);
+        setUpdateToast({
+          ...INITIAL_UPDATE_TOAST,
+          status: "error",
+          errorMessage: `检查更新失败：${message}`,
+        });
+      }
+    } finally {
+      checkingUpdateRef.current = false;
+      if (manual) {
+        setIsCheckingUpdate(false);
+      }
+    }
+  }, []);
+
   const handleInstallUpdate = useCallback(async () => {
     if (!availableUpdate) return;
 
@@ -478,36 +529,32 @@ function AppShell() {
   }, [handleNext, handleBack, state.step, isProcessing, canGoNext, state.outputDir, state.processStatus, profileResult, state.isLoggedIn, handleOpenOutputDir, handleCloseProfile]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    // Defer update check to allow UI to render first
+    if (updateToast.status !== "up-to-date") return;
     const timer = setTimeout(() => {
-      void checkForAppUpdate()
-        .then((update: AppUpdate | null) => {
-          if (!update || cancelled) return;
+      setUpdateToast(INITIAL_UPDATE_TOAST);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [updateToast.status]);
 
-          setAvailableUpdate(update);
-          setUpdateToast({
-            status: "available",
-            version: update.version,
-            notes: update.body?.trim() ?? "",
-            downloadedBytes: 0,
-            totalBytes: 0,
-            chunkCount: 0,
-            errorMessage: "",
-          });
-        })
-        .catch(() => {
-          if (cancelled) return;
-          // Silently fail update check - not critical for app functionality
-        });
-    }, 500); // Delay update check by 500ms
+  useEffect(() => {
+    // Defer initial update check to allow UI to render first
+    const timer = setTimeout(() => {
+      void runUpdateCheck(false);
+    }, 500);
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+    const handleFocus = () => {
+      const FIFTEEN_MINUTES = 15 * 60 * 1000;
+      if (Date.now() - lastUpdateCheckRef.current >= FIFTEEN_MINUTES) {
+        void runUpdateCheck(false);
+      }
     };
-  }, []);
+
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [runUpdateCheck]);
 
   const showFooter = !isProcessing;
 
@@ -535,7 +582,18 @@ function AppShell() {
       />
       <div className="app-window">
         <header className="app-header">
-          <h1 className="app-title">微存 <span style={{ fontSize: "0.5em", opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>Wecun</span></h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h1 className="app-title">微存 <span style={{ fontSize: "0.5em", opacity: 0.6, fontWeight: 400, marginLeft: 8 }}>Wecun</span></h1>
+            <button
+              className="logout-btn"
+              onClick={() => void runUpdateCheck(true)}
+              disabled={isCheckingUpdate}
+              type="button"
+              title="检查新版本"
+            >
+              {isCheckingUpdate ? "检查中..." : "检查更新"}
+            </button>
+          </div>
           {state.isLoggedIn && (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span className="auth-badge">
